@@ -65,6 +65,7 @@ fn main() {
 
     let mut smplx = Simplex::new();
     smplx.solve(&model);
+    println!("Model solved!");
 
     // let mut tbl = Tableau::new(arr);
     
