@@ -1,0 +1,13 @@
+[package]
+name = "roptimize"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ndarray = {version = "0.15.4"}
+uuid = {version = "1.1.0", features = ["v4"]}
+num = "0.4.0"
+tabular = "0.2.0"
+colored = "2.0.0"
