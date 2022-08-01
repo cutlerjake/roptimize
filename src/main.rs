@@ -43,13 +43,15 @@ fn main() {
 
     let obj_exp = 40* &var1 + 30* &var2;
 
-    let cons1 = Constraint::new(exp1, Comp::Le, 12.0_f64);
+    let cons1 = Constraint::new(exp1.clone(), Comp::Le, 12.0_f64);
     let cons2 = Constraint::new(exp2, Comp::Le, 16.0_f64);
+    let cons3 = Constraint::new(exp1.clone(), Comp::Ge, 4.0_f64);
     let mut model = Model::new(env.clone());
 
     model.set_obj_fn(OptDir::Max, obj_exp);
     model.add_constraint(cons1);
     model.add_constraint(cons2);
+    model.add_constraint(cons3);
 
     println!("{}", model);
 

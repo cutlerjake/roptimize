@@ -1,4 +1,4 @@
-use ndarray::Array2;
+use ndarray::{s, Array2};
 use tabular::{Row, Table};
 use uuid::Uuid; //used for unique variable ID
 use colored::*;
@@ -32,24 +32,22 @@ pub struct Model {
     opt_dir: OptDir,
     constraints: Vec<Constraint>,
     env: Environment,
-    // var_map: HashMap<Variable, VariableTransformationInfo>, //allows mapping of unbounded variables to sum of bounded variables
 }
 
 pub struct ModelTransformationInfo {
     pub mdl: Model,
     pub var_map: HashMap<Variable, VariableTransformationInfo>,
+    pub artificial_vars: Vec<Variable>,
     pub flipped_obj_fn: bool,
 }
 
 impl Model {
-    //create new empty model
     pub fn new(env: Environment) -> Self {
         Self {
             obj_fn: AffineExpression::default(),
             constraints: Vec::new(),
             opt_dir: OptDir::Min,
             env,
-            // var_map: HashMap::new(),
         }
     }
 
@@ -137,9 +135,13 @@ impl Model {
         }
 
         //step 3 convert all constraints to standard form
+        let mut artificial_vars = Vec::new();
+        let mut slack_vars = Vec::new();
         for (i, constraint) in mdl.constraints.iter_mut().enumerate() {
             let info = constraint.as_standard_form(Some("_".to_string() + i.to_string().as_str()));
             *constraint = info.cons;
+            artificial_vars.extend(info.artificial_vars);
+            slack_vars.extend(info.slack_vars);
         }
 
         //convert to minimization problem
@@ -156,14 +158,16 @@ impl Model {
                 //Do nothing
             }
         }
-        ModelTransformationInfo { mdl, var_map, flipped_obj_fn }
+        ModelTransformationInfo { mdl, var_map, artificial_vars, flipped_obj_fn }
     }
 
-    pub fn as_tableau(&self) -> (Tableau, Vec<usize>) {
+    pub fn as_tableau(&self) -> Tableau {
+        //
         //map all variables to unique index
         let var_ind_map = self.variable_index_map();
+        //
         //constraint rows followed by obj_fn row
-        let mut tbl = Array2::<f64>::zeros((self.constraints.len(), var_ind_map.len()+2));
+        let mut tbl = Array2::<f64>::zeros((self.constraints.len()+1, var_ind_map.len()+2));
         
         //populate constraint rows
         for (i, con) in self.constraints.iter().enumerate() {
@@ -181,27 +185,42 @@ impl Model {
             tbl[[i, var_ind_map.len() + 1]] = con.rhs().constant();
         }
 
-        //create tableau
-        let mut tableau = Tableau::new(tbl);
-
-        //convert ot row reduced echelon form
-        let pivots = tableau.rref();
 
         //populate obj_fn
         let mut obj_fn = vec![0.0; var_ind_map.len()+2];
-        obj_fn[var_ind_map.len()] = 1.0_f64;
+        //obj_fn[var_ind_map.len()] = 1.0_f64;
+        tbl[[self.constraints.len(), var_ind_map.len()]] = 1.0_f64;
         for (var, coeff) in self.obj_fn.coeffs.iter() {
-            obj_fn[var_ind_map[var]] = *coeff;
-            //tbl[[self.constraints.len(), var_ind_map[var]]] = *coeff;
+            //obj_fn[var_ind_map[var]] = *coeff;
+            tbl[[self.constraints.len(), var_ind_map[var]]] = *coeff;
         }
 
-        println!("objective function: {:?}", &obj_fn);
-        
-        //add obj to tableau
-        tableau.append_row(obj_fn);
-        
-        (tableau, pivots)
+        //find basic vars
+        let mut basic_vars = Vec::new();
+        for col_idx in 0..var_ind_map.len() {
+            let col = tbl.slice(s![..-1, col_idx]);
+            
+            let mut basic = true;
+            let mut found_one = false;
+            for &val in col {
+                if val == 1.0_f64 {
+                    found_one = true;
+                }
+                if !((val == 0.0_f64) || (val == 1.0_f64)) {
+                    basic = false;
+                    break;
+                }
+            }
 
+            if basic {
+                basic_vars.push(col_idx);
+            }
+        }
+
+        //create tableau
+        let mut tableau = Tableau::new(tbl, var_ind_map, basic_vars);
+
+        tableau
     }
 }
 
