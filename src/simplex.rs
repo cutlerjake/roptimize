@@ -4,8 +4,10 @@ use crate::affine_expr::AffineExpression;
 use crate::constraint::{Comp, Constraint};
 use crate::model::Model;
 use crate::solver::Solution;
-use crate::tableau::{Tableau, TableauIx};
+use crate::tableau::{Tableau, TableauIx, TblPrintInfo};
 use crate::var::Variable;
+
+use tabled::{object::Rows, style::Border, Modify, Style};
 
 use std::collections::HashMap;
 
@@ -16,17 +18,8 @@ impl Simplex {
         Self {}
     }
 
-    // pub fn tbl(&self) -> &Tableau {
-    //     &self.tbl
-    // }
-
-    // pub fn basic_vars(&self) -> &Vec<usize> {
-    //     &self.basic_vars
-    // }
-
     #[inline(always)]
     fn pivot_ind(&self, tbl: &Tableau) -> Option<TableauIx> {
-        println!("{}", tbl.tbl);
         let j = tbl
             .tbl()
             .slice(s![-1, ..-1])
@@ -36,7 +29,6 @@ impl Simplex {
             .min_by(|(_i1, v1), (_i2, v2)| v1.partial_cmp(v2).expect("Nan encountered"))
             .map(|(i, _v)| i)?;
 
-        println!("J: {}", j);
         let i = tbl
             .tbl()
             .slice(s![..-1, j])
@@ -51,11 +43,40 @@ impl Simplex {
             })
             .map(|((i, _a), _b)| i)?;
 
-        println!("i: {}", i);
         Some(TableauIx::new(i, j))
     }
 
-    fn _solve(&mut self, tbl: &mut Tableau ) {
+    fn _solve_with_print(&mut self, tbl: &mut Tableau) {
+        let mut pvt_cnt = 0;
+
+        /// let table = (0..3)
+        ///    .map(|i| ("Hello", "World", i))
+        ///    .table()
+        ///    .with(Style::ascii().off_horizontal().lines([(1, Style::modern().get_horizontal())]))
+        ///    .to_string();
+        ///
+        while let Some(ix) = self.pivot_ind(&tbl) {
+            let table = tbl
+                .as_table(TblPrintInfo::Pivot(ix))
+                .with(
+                    Style::modern()
+                );
+                // .with(
+                //     Style::empty().lines([(
+                //         1,
+                //         Style::modern()
+                //             .vertical()
+                //             //.left(None)
+                //             //.intersection(None)
+                //             //.right(None),
+                //     )]),
+                //);
+            println!("{}", table);
+            tbl.pivot(&ix);
+        }
+    }
+
+    fn _solve(&mut self, tbl: &mut Tableau) {
         // println!("Hello from _solve");
         let mut pvt_cnt = 0;
         while let Some(ix) = self.pivot_ind(&tbl) {
@@ -65,8 +86,7 @@ impl Simplex {
         }
     }
 
-    pub fn solve(&mut self, mdl: &Model) -> Solution {
-
+    pub fn solve(&mut self, mdl: &Model, print: bool) -> Solution {
         let std_mdl_info = mdl.as_standard_form(true);
 
         let mut tableau = std_mdl_info.mdl.as_tableau();
@@ -74,6 +94,7 @@ impl Simplex {
         //solve first stage -> find inital basic feasible solution
         let mut second_stage_obj = tableau.tbl().slice(s![-1, ..]).to_owned();
         let mut first_stage_obj_vec = vec![0.0_f64; tableau.tbl().shape()[1]];
+        first_stage_obj_vec[tableau.tbl.shape()[1] - 2] = 1.0_f64;
 
         std_mdl_info.artificial_vars.iter().for_each(|var| {
             first_stage_obj_vec[tableau.vars[var]] = 1.0_f64;
@@ -108,32 +129,36 @@ impl Simplex {
         //set first stage objectve
         tableau.tbl.slice_mut(s![-1, ..]).assign(&first_stage_obj);
 
-        self._solve(&mut tableau);
+        match print {
+            true => self._solve_with_print(&mut tableau),
+            false => self._solve(&mut tableau),
+        }
 
         //make sure all artificial variables 0
         if tableau.tbl()[[tableau.tbl().shape()[0] - 1, tableau.tbl().shape()[1] - 1]] != 0.0_f64 {
             panic!("Infeasible")
         };
 
+        if print {
+            println!("Final second stage tableau:\n{}", tableau);
+        }
+
         //restore proper form through gaussian elimination
-        tableau.basic_vars.iter().for_each(|&col| {
-            //col associated with basic var -> only one non-zero value
-            let ix_i = tableau
-                .tbl()
-                .slice(s![..-1, col])
-                .iter()
-                .position(|&v| v == 1.0_f64)
-                .unwrap();
+        tableau
+            .basic_vars
+            .iter()
+            .enumerate()
+            .for_each(|(ix_i, &col)| {
+                //set coeff of obj fn to zero
+                let obj_coeff = second_stage_obj[[col]];
+                let con_coeff = tableau.tbl()[[ix_i, col]];
+                let ratio = obj_coeff / con_coeff;
+                //let ratio = con_coeff/obj_coeff;
 
-            //set coeff of obj fn to zero
-            let obj_coeff = tableau.tbl()[[tableau.tbl().shape()[0] - 1, col]];
-            let con_coeff = tableau.tbl()[[ix_i, col]];
-            let ratio = obj_coeff / con_coeff;
+                let temp = &tableau.tbl().slice(s![ix_i, ..]) * ratio;
 
-            let temp = &tableau.tbl().slice(s![ix_i, ..]) * ratio;
-
-            second_stage_obj -= &temp;
-        });
+                second_stage_obj -= &temp;
+            });
 
         //set second stage obj
         tableau.tbl.slice_mut(s![-1, ..]).assign(&second_stage_obj);
@@ -147,15 +172,29 @@ impl Simplex {
         tableau.filter_cols(col_mask);
 
         //solve second stage problem
-        self._solve(&mut tableau);
+        match print {
+            true => self._solve_with_print(&mut tableau),
+            false => self._solve(&mut tableau),
+        }
+
+        if print {
+            println!("Final tableau:\n{}", tableau);
+        }
 
         let tableau_shape = tableau.tbl().shape();
 
         //get obj fn value
         let mut obj_fn_val = tableau.tbl()[[tableau_shape[0] - 1, tableau_shape[1] - 1]];
+        let mut obj_constant = std_mdl_info.mdl.obj_fn.constant();
         if std_mdl_info.flipped_obj_fn {
-            obj_fn_val *= -1.0_f64;
+            //obj_fn_val *= -1.0_f64;
+            obj_constant *= -1.0_f64;
         }
+
+        obj_fn_val += obj_constant;
+
+        println!("obj const: {}", std_mdl_info.mdl.obj_fn.constant());
+        println!("Obj fn value: {}", obj_fn_val);
 
         //create variable map
         let var_map = std_mdl_info
@@ -182,6 +221,7 @@ impl Simplex {
             *entry = var_val;
         }
 
+        println!("{}", tableau);
         Solution::new(obj_fn_val, var_map, var_values)
     }
 }

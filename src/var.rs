@@ -323,6 +323,7 @@ impl Variable {
         match self.lb() {
             //lower bound at zero -> do nothing
             Some(lb) if lb == 0.0_f64 => None,
+
             //bounded case -> add constant
             Some(lb) => {
                 //add var

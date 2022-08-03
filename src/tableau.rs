@@ -4,8 +4,19 @@ use ndarray::{s, stack, Array, Array1, Array2, ArrayView, Axis, Slice, Zip};
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::RangeBounds;
 
+use tabled::{builder::Builder, object::Cell, Modify, Style, Table};
+use tabular;
+
+#[derive(Copy, Clone, Debug, Hash)]
+pub enum TblPrintInfo {
+    Default,
+    Pivot(TableauIx),
+}
+
+#[derive(Copy, Clone, Debug, Hash)]
 pub struct TableauIx {
     i: usize,
     j: usize,
@@ -87,14 +98,36 @@ impl Tableau {
     pub fn filter_cols(&mut self, mask: Vec<bool>) {
         assert!(self.tbl.shape()[1] == mask.len(), "Incorrect mask length");
 
+        //create index map
+        let ind_var_map = self
+            .vars
+            .iter()
+            .map(|(var, ind)| (*ind, var.clone()))
+            .collect::<HashMap<usize, Variable>>();
+
         //update basic var indexes
-        mask.iter().enumerate().for_each(|(var_ind, var)| {
-            self.basic_vars.iter_mut().for_each(|bvar_ind| {
-                if *bvar_ind > var_ind {
-                    *bvar_ind -= 1;
-                }
-            });
+        let mut basic_offset = vec![0; self.basic_vars.len()];
+        let mut var_offset = HashMap::<Variable, usize>::new();
+        let mask_indices = mask
+            .iter()
+            .enumerate()
+            .filter(|(i, &flag)| !flag)
+            .map(|(i, &flag)| i)
+            .collect::<Vec<usize>>();
+        self.basic_vars.iter_mut().for_each(|bvar_ind| {
+            *bvar_ind -= mask_indices
+                .iter()
+                .filter(|mask_ind| *mask_ind < bvar_ind)
+                .count();
         });
+
+        self.vars.iter_mut().for_each(|(var, ind)| {
+            *ind -= mask_indices
+                .iter()
+                .filter(|mask_ind| *mask_ind < ind)
+                .count();
+        });
+
         //can do better than double transpose
         self.tbl.swap_axes(0, 1);
         self.filter_rows(mask);
@@ -208,5 +241,153 @@ impl Tableau {
 
         //update basic vars
         self.basic_vars[pivot_ind.i()] = pivot_ind.j();
+    }
+
+    pub fn tbl_variable_columns_string(&self) -> String {
+        "{:>}".repeat(self.tbl.shape()[1])
+    }
+
+    pub fn table_strings<T: Into<Slice>, U: Into<Slice>>(
+        &self,
+        rows: T,
+        cols: U,
+    ) -> Vec<Vec<String>> {
+        let tbl_slice = self.tbl.slice(s![rows.into(), cols.into()]);
+        let mut row_strings =
+            vec![vec!["".to_string(); tbl_slice.shape()[1]]; tbl_slice.shape()[0]];
+
+        for (ci, col) in tbl_slice.columns().into_iter().enumerate() {
+            let (max_whole_len, max_decimal_len) = col.iter().fold((0, 0), |len, num| {
+                let s_num = num.abs().to_string();
+                let mut s_num_it = s_num.split(".");
+                (
+                    std::cmp::max(len.0, s_num_it.next().unwrap_or("").len()),
+                    std::cmp::max(len.1, s_num_it.next().unwrap_or("").len()),
+                )
+            });
+
+            for val in col {}
+
+            col.iter().enumerate().for_each(|(ri, coeff)| {
+                if ci != 0 && coeff.signum() == 1.0 {
+                    row_strings[ri][ci] += &" + ";
+                } else if coeff.signum() != 1.0 {
+                    row_strings[ri][ci] += &" - ";
+                }
+
+                let s_num = coeff.abs().to_string();
+                let mut s_num_it = s_num.split(".");
+
+                let s_whole_num = match (s_num_it.next()) {
+                    Some(whole_num) => {
+                        format!("{:>width$}", whole_num, width = max_whole_len)
+                    }
+                    _ => {
+                        format!("{:>width$}", "", width = max_whole_len)
+                    }
+                };
+                let s_decimal_num = match (s_num_it.next()) {
+                    Some(decimal_num) => {
+                        let s = ".".to_string();
+                        s + format!("{:>width$}", decimal_num, width = max_decimal_len).as_str()
+                    }
+                    _ => {
+                        format!("{:>width$}", "", width = max_decimal_len+1)
+                    }
+                };
+
+                row_strings[ri][ci] += s_whole_num.as_str();
+                row_strings[ri][ci] += s_decimal_num.as_str();
+            });
+        }
+        row_strings
+    }
+
+    pub fn as_tabular(&self) -> tabular::Table {
+        let mut table = tabular::Table::new(self.tbl_variable_columns_string().as_str());
+
+        self.table_strings(.., ..).iter().for_each(|row_vec| {
+            let row = tabular::Row::from_cells(row_vec);
+            table.add_row(row);
+        });
+
+        table
+    }
+
+    pub fn print_pivot(&self, pivot_ind: TableauIx) {}
+
+    pub fn as_table_builder(&self, info: TblPrintInfo) -> Builder {
+        let mut builder = Builder::default();
+        let offset = match info {
+            TblPrintInfo::Default => 0,
+            TblPrintInfo::Pivot(_) => 1,
+        };
+
+        //header row
+        let mut header = vec!["".to_string(); self.tbl.shape()[1] + 1 + offset];
+        header[0 + offset] = "Basic Vars".to_string();
+        self.vars
+            .iter()
+            .for_each(|(var, ind)| header[ind + 1 + offset] = var.name().to_string());
+        header[self.tbl.shape()[1] - 1 + offset] = "Z".to_string();
+        header[self.tbl.shape()[1] + offset] = "rhs".to_string();
+
+        match info {
+            TblPrintInfo::Default => {
+                builder.set_columns(&header);
+            }
+            TblPrintInfo::Pivot(_) => {
+                builder.set_columns(vec!["".to_string(); header.len()]);
+                builder.add_record(&header);
+            }
+        }
+        //constraint rows
+        for row_idx in 0..self.tbl.shape()[0] {
+            let mut row_data = vec!["".to_string(); header.len()];
+
+            //name of basic var for row
+            if row_idx < self.tbl.shape()[0] - 1 {
+                row_data[0 + offset] = header[self.basic_vars[row_idx] + 1 + offset].clone();
+            } else {
+                row_data[0 + offset] = "Z".to_string();
+            }
+            //populate row
+            self.tbl
+                .slice(s![row_idx, ..])
+                .iter()
+                .enumerate()
+                .for_each(|(i, &val)| {
+                    row_data[i + 1 + offset] = val.to_string();
+                });
+
+            builder.add_record(row_data);
+        }
+
+        builder
+    }
+
+    pub fn as_table(&self, info: TblPrintInfo) -> Table {
+        let mut table = self.as_table_builder(info).build();
+        match info {
+            TblPrintInfo::Default => table,
+            TblPrintInfo::Pivot(TableauIx { i, j }) => {
+                table = table
+                    .with(Modify::new(Cell(i + 2, 0)).with(|s: &str| "Leaving".to_string()))
+                    .with(Modify::new(Cell(0, j + 2)).with(|s: &str| "Entering".to_string()));
+
+                table
+            }
+        }
+    }
+}
+
+impl fmt::Display for Tableau {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let table = self.as_table(TblPrintInfo::Default).with(Style::modern());
+        write!(f, "{}\n", table);
+
+        let table = self.as_tabular();
+
+        write!(f, "{}", table)
     }
 }

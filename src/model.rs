@@ -1,15 +1,15 @@
+use colored::*;
 use ndarray::{s, Array2};
 use tabular::{Row, Table};
 use uuid::Uuid; //used for unique variable ID
-use colored::*;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::affine_expr::AffineExpression;
 use crate::constraint::{Comp, Constraint};
-use crate::var::{Environment, VarType, Variable, VariableDefinition, VariableTransformationInfo};
 use crate::tableau::Tableau;
+use crate::var::{Environment, VarType, Variable, VariableDefinition, VariableTransformationInfo};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum OptDir {
@@ -28,10 +28,10 @@ impl fmt::Display for OptDir {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Model {
-    obj_fn: AffineExpression,
-    opt_dir: OptDir,
-    constraints: Vec<Constraint>,
-    env: Environment,
+    pub(crate) obj_fn: AffineExpression,
+    pub(crate) opt_dir: OptDir,
+    pub(crate) constraints: Vec<Constraint>,
+    pub(crate) env: Environment,
 }
 
 pub struct ModelTransformationInfo {
@@ -106,25 +106,26 @@ impl Model {
         };
         let mut var_map: HashMap<Variable, VariableTransformationInfo> = HashMap::new();
         for ref var in mdl.variables() {
-            if !var.is_standard() {
-                //standardize and add to var map
-                if let Some(info) = var.as_standard_form(bvar.as_ref()) {
-                    // mdl.var_map.insert(var.clone(), info);
-                    var_map.insert(var.clone(), info);
-                    if let Some(ref bvar) = bvar {
-                        // build constraint
-                        let lhs = AffineExpression::from(var);
-                        // let rhs = mdl.var_map[var].expr.clone();
-                        let rhs = var_map[var].expr.clone();
+            //standardize and add to var map
+            if let Some(info) = var.as_standard_form(bvar.as_ref()) {
+                // mdl.var_map.insert(var.clone(), info);
+                var_map.insert(var.clone(), info);
+                // if let Some(ref bvar) = bvar {
+                //     // build constraint
+                //     let lhs = AffineExpression::from(var);
+                //     // let rhs = mdl.var_map[var].expr.clone();
+                //     let rhs = var_map[var].expr.clone();
 
-                        //Current approach: N constraint -> consider converting constraint to sum
-                        //require bvar greater than all other variables
-                        let cons = Constraint::new(lhs, Comp::Ge, rhs);
+                //     //Current approach: N constraint -> consider converting constraint to sum
+                //     //require bvar greater than all other variables
+                //     let cons = Constraint::new(lhs, Comp::Ge, rhs);
 
-                        //add constraint to model
-                        mdl.add_constraint(cons);
-                    }
-                }
+                //     //add constraint to model
+                //     mdl.add_constraint(cons);
+                // }
+            } if let Some(ub) = var.ub() {
+                let cons = Constraint::new(var, Comp::Le, ub);
+                mdl.add_constraint(cons);
             }
         }
         //step 2 update all constraints to replace non-standard variables
@@ -134,7 +135,12 @@ impl Model {
             }
         }
 
-        //step 3 convert all constraints to standard form
+        //step 3 update obj-fn to replace non-standard variables
+        for (var, info) in &var_map {
+            mdl.obj_fn.replace_var(var.clone(), info.expr.clone());
+        }
+
+        //step 4 convert all constraints to standard form
         let mut artificial_vars = Vec::new();
         let mut slack_vars = Vec::new();
         for (i, constraint) in mdl.constraints.iter_mut().enumerate() {
@@ -158,7 +164,12 @@ impl Model {
                 //Do nothing
             }
         }
-        ModelTransformationInfo { mdl, var_map, artificial_vars, flipped_obj_fn }
+        ModelTransformationInfo {
+            mdl,
+            var_map,
+            artificial_vars,
+            flipped_obj_fn,
+        }
     }
 
     pub fn as_tableau(&self) -> Tableau {
@@ -167,15 +178,21 @@ impl Model {
         let var_ind_map = self.variable_index_map();
         //
         //constraint rows followed by obj_fn row
-        let mut tbl = Array2::<f64>::zeros((self.constraints.len()+1, var_ind_map.len()+2));
-        
+        let mut tbl = Array2::<f64>::zeros((self.constraints.len() + 1, var_ind_map.len() + 2));
+
         //populate constraint rows
         for (i, con) in self.constraints.iter().enumerate() {
             //ensure constraints in standard form
-            assert!(con.rhs().coeffs.len() == 0, "Variable(s) on rhs of constraint");
+            assert!(
+                con.rhs().coeffs.len() == 0,
+                "Variable(s) on rhs of constraint"
+            );
             assert!(con.comp() == Comp::Eq, "Non equality constraint");
-            assert!(con.lhs().constant == 0.0_f64, "Constant on lhs of constraint");
-            
+            assert!(
+                con.lhs().constant == 0.0_f64,
+                "Constant on lhs of constraint"
+            );
+
             //pupulate lhs
             for (var, coeff) in &con.lhs().coeffs {
                 tbl[[i, var_ind_map[var]]] = *coeff;
@@ -185,9 +202,8 @@ impl Model {
             tbl[[i, var_ind_map.len() + 1]] = con.rhs().constant();
         }
 
-
         //populate obj_fn
-        let mut obj_fn = vec![0.0; var_ind_map.len()+2];
+        let mut obj_fn = vec![0.0; var_ind_map.len() + 2];
         //obj_fn[var_ind_map.len()] = 1.0_f64;
         tbl[[self.constraints.len(), var_ind_map.len()]] = 1.0_f64;
         for (var, coeff) in self.obj_fn.coeffs.iter() {
@@ -196,24 +212,30 @@ impl Model {
         }
 
         //find basic vars
-        let mut basic_vars = Vec::new();
+        let mut basic_vars = vec![0; self.constraints.len()];
         for col_idx in 0..var_ind_map.len() {
             let col = tbl.slice(s![..-1, col_idx]);
-            
+
             let mut basic = true;
             let mut found_one = false;
-            for &val in col {
-                if val == 1.0_f64 {
+            let mut ind = 0;
+            for (i, &val) in col.iter().enumerate() {
+                if (val == 1.0_f64) {
+                    if found_one {
+                        basic = false;
+                        break;
+                    }
                     found_one = true;
-                }
-                if !((val == 0.0_f64) || (val == 1.0_f64)) {
+                    ind = i;
+                } else if (val != 0.0_f64) {
                     basic = false;
                     break;
                 }
             }
 
             if basic {
-                basic_vars.push(col_idx);
+                basic_vars[ind] = col_idx;
+                //basic_vars.push(col_idx);
             }
         }
 
@@ -222,6 +244,19 @@ impl Model {
 
         tableau
     }
+
+    pub fn tbl_variable_columns_string(&self, n_vars: usize) -> String {
+        "{:>}".repeat(n_vars)
+    }
+
+    pub fn table_column_string(&self, n_vars: usize) -> String {
+        let mut columns = "{:<}{:^}".to_string(); //OptDir, colon
+        columns += &self.tbl_variable_columns_string(2 * n_vars + 2); //lhs var, constant
+        columns += "{:^}"; //Comp
+        columns += &self.tbl_variable_columns_string(2 * n_vars + 2); //rhs var, constant
+        columns
+    }
+
 }
 
 impl fmt::Display for Model {
@@ -236,11 +271,8 @@ impl fmt::Display for Model {
         let plus = "+".to_string();
         let minus = "-".to_string();
         let vars = self.variables();
-        let mut columns = "{:<}{:^}".to_string(); //OptDir, colon
-        columns += &"{:>}".repeat(2 * vars.len() + 2); //lhs var, constant
-        columns += "{:^}"; //Comp
-        columns += &"{:>}".repeat(2 * vars.len() + 2); //rhs var, constant
 
+        let columns = self.table_column_string(vars.len());
         let mut table = Table::new(columns.as_str());
 
         let mut row = Row::new();
@@ -257,11 +289,11 @@ impl fmt::Display for Model {
         row_vec[1] = ":".to_string();
         for (var, coeff) in &self.obj_fn.coeffs {
             let ind = var_ind_map[var];
-                row_vec[2 * ind + 2] = if *coeff >= 0.0 {
-                    plus.clone()
-                } else {
-                    minus.clone()
-                };
+            row_vec[2 * ind + 2] = if *coeff >= 0.0 {
+                plus.clone()
+            } else {
+                minus.clone()
+            };
             row_vec[2 * ind + 3] = format!("{}*{}", coeff.abs(), var.name());
         }
         if (self.obj_fn.constant != 0.0_f64) | (self.obj_fn.coeffs.len() == 0) {
@@ -300,11 +332,11 @@ impl fmt::Display for Model {
             // lhs
             for (var, coeff) in &constraint.lhs().coeffs {
                 let ind = var_ind_map[var];
-                    cons_vec[2 * ind + 2] = if *coeff >= 0.0 {
-                        plus.clone()
-                    } else {
-                        minus.clone()
-                    };
+                cons_vec[2 * ind + 2] = if *coeff >= 0.0 {
+                    plus.clone()
+                } else {
+                    minus.clone()
+                };
                 cons_vec[2 * ind + 3] = format!("{}*{}", coeff.abs(), var.name());
             }
             if (constraint.lhs().constant != 0.0_f64) | (constraint.lhs().coeffs.len() == 0) {
@@ -333,11 +365,11 @@ impl fmt::Display for Model {
             // rhs
             for (var, coeff) in &constraint.rhs().coeffs {
                 let ind = var_ind_map[var];
-                    cons_vec[2 * ind + 5 + 2 * vars.len()] = if *coeff >= 0.0 {
-                        plus.clone()
-                    } else {
-                        minus.clone()
-                    };
+                cons_vec[2 * ind + 5 + 2 * vars.len()] = if *coeff >= 0.0 {
+                    plus.clone()
+                } else {
+                    minus.clone()
+                };
                 cons_vec[2 * ind + 6 + 2 * vars.len()] = format!("{}*{}", coeff.abs(), var.name());
             }
             if (constraint.rhs().constant != 0.0_f64) | (constraint.rhs().coeffs.len() == 0) {
@@ -364,6 +396,5 @@ impl fmt::Display for Model {
         }
 
         write!(f, "{}", table)
-
     }
 }

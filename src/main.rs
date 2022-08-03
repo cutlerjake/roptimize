@@ -30,7 +30,7 @@ fn main() {
         .with_name(String::from("a"));
 
     let vd2 = VariableDefinition::new(VarType::Float)
-        .with_lb(0)
+        .with_lb(0.0)
         .with_name(String::from("b"));
 
 
@@ -41,7 +41,7 @@ fn main() {
     let exp2 = 2* &var1 + &var2;
 
 
-    let obj_exp = 40* &var1 + 30* &var2;
+    let obj_exp = 40* &var1 - 30* &var2;
 
     let cons1 = Constraint::new(exp1.clone(), Comp::Le, 12.0_f64);
     let cons2 = Constraint::new(exp2, Comp::Le, 16.0_f64);
@@ -53,8 +53,9 @@ fn main() {
     model.add_constraint(cons2);
     model.add_constraint(cons3);
 
-    println!("{}", model);
+    println!("model:\n{}", model);
 
+    println!("standardized model:\n{}", model.as_standard_form(true).mdl);
     // let std = model.as_standard_form(true);
 
     // println!("{}", std.mdl);
@@ -66,7 +67,7 @@ fn main() {
     // ];
 
     let mut smplx = Simplex::new();
-    smplx.solve(&model);
+    smplx.solve(&model, true);
     println!("Model solved!");
 
     // let mut tbl = Tableau::new(arr);
