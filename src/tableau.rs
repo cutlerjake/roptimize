@@ -7,13 +7,27 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::RangeBounds;
 
-use tabled::{builder::Builder, object::Cell, Modify, Style, Table};
+use tabled::{
+    builder::Builder,
+    object::{Cell, Columns, Object, Rows, Segment},
+    style::Border,
+    Highlight, Modify, Style, Table,
+};
 use tabular;
 
 #[derive(Copy, Clone, Debug, Hash)]
 pub enum TblPrintInfo {
     Default,
     Pivot(TableauIx),
+}
+
+impl TblPrintInfo {
+    pub fn get_padding(&self) -> [usize; 4] {
+        match self {
+            TblPrintInfo::Default => [0, 0, 0, 0],
+            TblPrintInfo::Pivot(_) => [1, 0, 1, 1],
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash)]
@@ -247,7 +261,7 @@ impl Tableau {
         "{:>}".repeat(self.tbl.shape()[1])
     }
 
-    pub fn table_strings<T: Into<Slice>, U: Into<Slice>>(
+    pub fn row_strings<T: Into<Slice>, U: Into<Slice>>(
         &self,
         rows: T,
         cols: U,
@@ -258,7 +272,7 @@ impl Tableau {
 
         for (ci, col) in tbl_slice.columns().into_iter().enumerate() {
             let (max_whole_len, max_decimal_len) = col.iter().fold((0, 0), |len, num| {
-                let s_num = num.abs().to_string();
+                let s_num = num.to_string();
                 let mut s_num_it = s_num.split(".");
                 (
                     std::cmp::max(len.0, s_num_it.next().unwrap_or("").len()),
@@ -266,36 +280,44 @@ impl Tableau {
                 )
             });
 
-            for val in col {}
-
             col.iter().enumerate().for_each(|(ri, coeff)| {
-                if ci != 0 && coeff.signum() == 1.0 {
-                    row_strings[ri][ci] += &" + ";
-                } else if coeff.signum() != 1.0 {
-                    row_strings[ri][ci] += &" - ";
-                }
+                // if ci != 0 && coeff.signum() == 1.0 {
+                //     row_strings[ri][ci] += &" + ";
+                // } else if coeff.signum() != 1.0 {
+                //     row_strings[ri][ci] += &" - ";
+                // }
+
+                let sign = if coeff.signum() != 1.0 {
+                    "-".to_string()
+                } else {
+                    "".to_string()
+                };
 
                 let s_num = coeff.abs().to_string();
                 let mut s_num_it = s_num.split(".");
 
-                let s_whole_num = match (s_num_it.next()) {
+                let s_whole_num = match s_num_it.next() {
                     Some(whole_num) => {
-                        format!("{:>width$}", whole_num, width = max_whole_len)
+                        format!("{:>width$}", sign + whole_num, width = max_whole_len)
                     }
                     _ => {
-                        format!("{:>width$}", "", width = max_whole_len)
+                        format!("{:>width$}", sign, width = max_whole_len)
                     }
                 };
-                let s_decimal_num = match (s_num_it.next()) {
+                let mut s_decimal_num = match s_num_it.next() {
                     Some(decimal_num) => {
                         let s = ".".to_string();
-                        s + format!("{:>width$}", decimal_num, width = max_decimal_len).as_str()
+                        s + format!("{:<width$}", decimal_num, width = max_decimal_len).as_str()
                     }
                     _ => {
-                        format!("{:>width$}", "", width = max_decimal_len+1)
+                        format!("{:<width$}", "", width = max_decimal_len + 1)
                     }
                 };
 
+                //trim s_decimal_num
+                if s_decimal_num.len() > 2 {
+                    s_decimal_num.replace_range(2.., "");
+                }
                 row_strings[ri][ci] += s_whole_num.as_str();
                 row_strings[ri][ci] += s_decimal_num.as_str();
             });
@@ -306,7 +328,7 @@ impl Tableau {
     pub fn as_tabular(&self) -> tabular::Table {
         let mut table = tabular::Table::new(self.tbl_variable_columns_string().as_str());
 
-        self.table_strings(.., ..).iter().for_each(|row_vec| {
+        self.row_strings(.., ..).iter().for_each(|row_vec| {
             let row = tabular::Row::from_cells(row_vec);
             table.add_row(row);
         });
@@ -323,57 +345,155 @@ impl Tableau {
             TblPrintInfo::Pivot(_) => 1,
         };
 
-        //header row
-        let mut header = vec!["".to_string(); self.tbl.shape()[1] + 1 + offset];
-        header[0 + offset] = "Basic Vars".to_string();
+        let [top_padding, bottom_padding, left_padding, right_padding] = info.get_padding();
+
+        //build header row
+        let mut header =
+            vec!["".to_string(); self.tbl.shape()[1] + 1 + left_padding + right_padding];
+        header[0 + left_padding] = "Basic Vars".to_string();
         self.vars
             .iter()
-            .for_each(|(var, ind)| header[ind + 1 + offset] = var.name().to_string());
-        header[self.tbl.shape()[1] - 1 + offset] = "Z".to_string();
-        header[self.tbl.shape()[1] + offset] = "rhs".to_string();
+            .for_each(|(var, ind)| header[ind + 1 + left_padding] = var.name().to_string());
+        header[self.tbl.shape()[1] - 1 + left_padding] = "Z".to_string();
+        header[self.tbl.shape()[1] + left_padding] = "rhs".to_string();
 
+        //add header and required empty rows
         match info {
             TblPrintInfo::Default => {
-                builder.set_columns(&header);
+                builder.add_record(&header);
             }
             TblPrintInfo::Pivot(_) => {
-                builder.set_columns(vec!["".to_string(); header.len()]);
+                for _ in 0..top_padding {
+                    builder.add_record(&vec!["".to_string(); header.len()]);
+                }
                 builder.add_record(&header);
             }
         }
-        //constraint rows
-        for row_idx in 0..self.tbl.shape()[0] {
-            let mut row_data = vec!["".to_string(); header.len()];
+        //data rows
+        self.row_strings(.., ..)
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, row_coeffs)| {
+                let mut row = match info {
+                    TblPrintInfo::Default => Vec::new(),
+                    TblPrintInfo::Pivot(_) => vec!["".to_string(); 1],
+                };
+                //name of basic var for row
+                if i < self.tbl.shape()[0] - 1 {
+                    row.push(header[self.basic_vars[i] + 1 + left_padding].clone());
+                } else {
+                    row.push("Z".to_string());
+                };
 
-            //name of basic var for row
-            if row_idx < self.tbl.shape()[0] - 1 {
-                row_data[0 + offset] = header[self.basic_vars[row_idx] + 1 + offset].clone();
-            } else {
-                row_data[0 + offset] = "Z".to_string();
+                row.extend(row_coeffs);
+                builder.add_record(row);
+            });
+
+        match info {
+            TblPrintInfo::Default => {}
+            TblPrintInfo::Pivot(_) => {
+                for _ in 0..bottom_padding {
+                    builder.add_record(&vec!["".to_string(); header.len()]);
+                }
             }
-            //populate row
-            self.tbl
-                .slice(s![row_idx, ..])
-                .iter()
-                .enumerate()
-                .for_each(|(i, &val)| {
-                    row_data[i + 1 + offset] = val.to_string();
-                });
-
-            builder.add_record(row_data);
         }
 
         builder
     }
 
     pub fn as_table(&self, info: TblPrintInfo) -> Table {
-        let mut table = self.as_table_builder(info).build();
+        let [top_padding, bottom_padding, left_padding, right_padding] = info.get_padding();
+
+        //build table and get dims
+        let mut table = self.as_table_builder(info).build().with(Style::empty());
+        let (nrows, ncols) = table.shape();
+
+        //format table borders
+        table = table
+            .with(
+                Modify::new(
+                    Rows::single(0 + top_padding)
+                        .not(Columns::new(0..left_padding))
+                        .not(Columns::new(ncols - right_padding..ncols)),
+                )
+                .with(Border::default().bottom('─')),
+            )
+            .with(
+                Modify::new(
+                    Rows::single(nrows - 1 - bottom_padding)
+                        .not(Columns::new(0..left_padding))
+                        .not(Columns::new(ncols - right_padding..ncols)),
+                )
+                .with(Border::default().top('─')),
+            )
+            .with(
+                Modify::new(
+                    Columns::single(0 + left_padding)
+                        .not(Rows::new(0..top_padding))
+                        .not(Rows::new(nrows - bottom_padding..nrows)),
+                )
+                .with(Border::default().right('│')),
+            )
+            .with(
+                Modify::new(
+                    Columns::single(ncols - 1 - right_padding)
+                        .not(Rows::new(0..top_padding))
+                        .not(Rows::new(nrows - bottom_padding..nrows)),
+                )
+                .with(Border::default().left('│')),
+            )
+            .with(
+                Modify::new(Cell(0 + top_padding, 0 + left_padding))
+                    .with(Border::default().bottom_right_corner('┼')),
+            )
+            .with(
+                Modify::new(Cell(nrows - 1 - bottom_padding, 0 + left_padding))
+                    .with(Border::default().top_right_corner('┼')),
+            )
+            .with(
+                Modify::new(Cell(nrows - 1 - bottom_padding, ncols - 1 - right_padding))
+                    .with(Border::default().top_left_corner('┼')),
+            )
+            .with(
+                Modify::new(Cell(0 + top_padding, ncols - 1 - right_padding))
+                    .with(Border::default().bottom_left_corner('┼')),
+            );
+
+        //annotate table if info is pivot variant
         match info {
             TblPrintInfo::Default => table,
             TblPrintInfo::Pivot(TableauIx { i, j }) => {
                 table = table
-                    .with(Modify::new(Cell(i + 2, 0)).with(|s: &str| "Leaving".to_string()))
-                    .with(Modify::new(Cell(0, j + 2)).with(|s: &str| "Entering".to_string()));
+                    .with(
+                        Modify::new(Cell(i + 1 + top_padding, 0))
+                            .with(|s: &str| "Leaving".to_string()),
+                    )
+                    .with(
+                        Modify::new(Cell(0, j + 1 + left_padding))
+                            .with(|s: &str| "Entering".to_string()),
+                    );
+
+                for (row, val) in self.tbl.slice(s![..-1, j]).iter().enumerate() {
+                    let denominator = self.tbl[[i, j]];
+                    let sign = if val.signum() == denominator.signum() {
+                        "-"
+                    } else {
+                        "+"
+                    };
+                    let annotation = format!(
+                        "R{} = R{} {} {:.2}/{:.2}*R{}",
+                        row,
+                        row,
+                        sign,
+                        val.abs(),//numerator.abs(),
+                        denominator.abs(),
+                        i
+                    );
+                    table = table.with(
+                        Modify::new(Cell(row + 1 + top_padding, ncols - 1))
+                            .with(|s: &str| annotation.to_string()),
+                    );
+                }
 
                 table
             }
@@ -383,11 +503,11 @@ impl Tableau {
 
 impl fmt::Display for Tableau {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let table = self.as_table(TblPrintInfo::Default).with(Style::modern());
-        write!(f, "{}\n", table);
+        let table = self.as_table(TblPrintInfo::Default);
+        write!(f, "{}\n", table)
 
-        let table = self.as_tabular();
+        //let table = self.as_tabular();
 
-        write!(f, "{}", table)
+        // write!(f, "{}", table)
     }
 }

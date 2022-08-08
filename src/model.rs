@@ -104,12 +104,20 @@ impl Model {
         } else {
             None
         };
+
+        let mut bvar_expression = AffineExpression::default();
         let mut var_map: HashMap<Variable, VariableTransformationInfo> = HashMap::new();
         for ref var in mdl.variables() {
             //standardize and add to var map
             if let Some(info) = var.as_standard_form(bvar.as_ref()) {
                 // mdl.var_map.insert(var.clone(), info);
                 var_map.insert(var.clone(), info);
+                if let Some(ref bvar) = bvar {
+
+                    //remove bvar from expression
+                    bvar_expression += var_map[var].expr.clone() - bvar;                  
+
+                }
                 // if let Some(ref bvar) = bvar {
                 //     // build constraint
                 //     let lhs = AffineExpression::from(var);
@@ -127,6 +135,10 @@ impl Model {
                 let cons = Constraint::new(var, Comp::Le, ub);
                 mdl.add_constraint(cons);
             }
+        }
+        if let Some(bvar) = bvar {
+            let cons = Constraint::new(bvar_expression, Comp::Le, &bvar);
+            mdl.add_constraint(cons);
         }
         //step 2 update all constraints to replace non-standard variables
         for constraint in &mut mdl.constraints {

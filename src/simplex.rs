@@ -49,29 +49,11 @@ impl Simplex {
     fn _solve_with_print(&mut self, tbl: &mut Tableau) {
         let mut pvt_cnt = 0;
 
-        /// let table = (0..3)
-        ///    .map(|i| ("Hello", "World", i))
-        ///    .table()
-        ///    .with(Style::ascii().off_horizontal().lines([(1, Style::modern().get_horizontal())]))
-        ///    .to_string();
-        ///
         while let Some(ix) = self.pivot_ind(&tbl) {
-            let table = tbl
-                .as_table(TblPrintInfo::Pivot(ix))
-                .with(
-                    Style::modern()
-                );
-                // .with(
-                //     Style::empty().lines([(
-                //         1,
-                //         Style::modern()
-                //             .vertical()
-                //             //.left(None)
-                //             //.intersection(None)
-                //             //.right(None),
-                //     )]),
-                //);
-            println!("{}", table);
+            let table = tbl.as_table(TblPrintInfo::Pivot(ix));
+
+            println!("pivot: {}", pvt_cnt);
+            println!("{}\n", table);
             tbl.pivot(&ix);
         }
     }
@@ -140,7 +122,7 @@ impl Simplex {
         };
 
         if print {
-            println!("Final second stage tableau:\n{}", tableau);
+            println!("Final first stage tableau:\n{}\n", tableau);
         }
 
         //restore proper form through gaussian elimination
@@ -173,7 +155,10 @@ impl Simplex {
 
         //solve second stage problem
         match print {
-            true => self._solve_with_print(&mut tableau),
+            true => {
+                println!("Basic feasible solution found. Starting solve.");
+                self._solve_with_print(&mut tableau);
+            }
             false => self._solve(&mut tableau),
         }
 
@@ -193,7 +178,6 @@ impl Simplex {
 
         obj_fn_val += obj_constant;
 
-        println!("obj const: {}", std_mdl_info.mdl.obj_fn.constant());
         println!("Obj fn value: {}", obj_fn_val);
 
         //create variable map
@@ -221,7 +205,6 @@ impl Simplex {
             *entry = var_val;
         }
 
-        println!("{}", tableau);
         Solution::new(obj_fn_val, var_map, var_values)
     }
 }

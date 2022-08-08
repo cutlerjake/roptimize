@@ -39,15 +39,11 @@ impl From<&Variable> for AffineExpression {
         let constant = 0.0_f64;
         let env = var.env().clone();
 
-        Self {
-            coeffs,
-            constant,
-        }
+        Self { coeffs, constant }
     }
 }
 
-impl <T: ToPrimitive> From<T> for AffineExpression {
-    
+impl<T: ToPrimitive> From<T> for AffineExpression {
     fn from(num: T) -> Self {
         let n = num.to_f64().unwrap();
 
@@ -58,14 +54,8 @@ impl <T: ToPrimitive> From<T> for AffineExpression {
 }
 
 impl AffineExpression {
-    pub fn new(
-        coeffs: HashMap<Variable, f64>,
-        constant: f64,
-    ) -> Self {
-        Self {
-            coeffs,
-            constant,
-        }
+    pub fn new(coeffs: HashMap<Variable, f64>, constant: f64) -> Self {
+        Self { coeffs, constant }
     }
 
     pub fn new_empty(env: Environment) -> Self {
@@ -117,7 +107,7 @@ impl AffineExpression {
 
     pub fn eval(&self, values: &HashMap<Variable, f64>) -> f64 {
         let mut val = 0.0;
-        
+
         for (var, coeff) in self.coeffs.iter() {
             val += coeff * values[var];
         }
@@ -136,7 +126,7 @@ impl Add for AffineExpression {
             let c = exp.coeffs.entry(key.clone()).or_insert(0.0_f64);
             *c += coeff;
         });
-        exp.coeffs.retain(|_, c| *c != 0.0_f64); 
+        exp.coeffs.retain(|_, c| *c != 0.0_f64);
         exp.constant += rhs.constant;
         exp
     }
@@ -153,7 +143,7 @@ impl Sub for AffineExpression {
             let c = exp.coeffs.entry(key.clone()).or_insert(0.0_f64);
             *c -= coeff;
         });
-        exp.coeffs.retain(|_, c| *c != 0.0_f64); 
+        exp.coeffs.retain(|_, c| *c != 0.0_f64);
         exp.constant -= rhs.constant;
         exp
     }
@@ -170,7 +160,7 @@ impl Add<&Variable> for AffineExpression {
         let c = self.coeffs.entry(rhs.clone()).or_insert(0.0_f64);
         *c += 1.0_f64;
 
-        self.coeffs.retain(|_, c| *c != 0.0_f64); 
+        self.coeffs.retain(|_, c| *c != 0.0_f64);
         self
     }
 }
@@ -185,7 +175,7 @@ impl Sub<&Variable> for AffineExpression {
 
         let c = self.coeffs.entry(rhs.clone()).or_insert(0.0_f64);
         *c -= 1.0_f64;
-        self.coeffs.retain(|_, c| *c != 0.0_f64); 
+        self.coeffs.retain(|_, c| *c != 0.0_f64);
         self
     }
 }
@@ -201,7 +191,7 @@ impl Add<AffineExpression> for &Variable {
         let mut _rhs = rhs;
         let c = _rhs.coeffs.entry(self.clone()).or_insert(0.0_f64);
         *c += 1.0_f64;
-        _rhs.coeffs.retain(|_, c| *c != 0.0_f64); 
+        _rhs.coeffs.retain(|_, c| *c != 0.0_f64);
         _rhs
     }
 }
@@ -218,7 +208,7 @@ impl Sub<AffineExpression> for &Variable {
         let c = _rhs.coeffs.entry(self.clone()).or_insert(0.0_f64);
         *c += 1.0_f64;
 
-        _rhs.coeffs.retain(|_, c| *c != 0.0_f64); 
+        _rhs.coeffs.retain(|_, c| *c != 0.0_f64);
         _rhs
     }
 }
@@ -236,10 +226,9 @@ impl Add for &Variable {
         for var in [self, rhs] {
             let c = coeffs.entry(var.clone()).or_insert(0.0_f64);
             *c += 1.0_f64;
-
         }
 
-        coeffs.retain(|_, c| *c != 0.0_f64); 
+        coeffs.retain(|_, c| *c != 0.0_f64);
         Self::Output {
             coeffs,
             constant: 0.0_f64,
@@ -264,7 +253,7 @@ impl Sub for &Variable {
         let c = coeffs.entry(rhs.clone()).or_insert(0.0_f64);
         *c -= 1.0_f64;
 
-        coeffs.retain(|_, c| *c != 0.0_f64); 
+        coeffs.retain(|_, c| *c != 0.0_f64);
         Self::Output {
             coeffs,
             constant: 0.0_f64,
@@ -335,7 +324,9 @@ impl<T: ToPrimitive> Mul<T> for AffineExpression {
 
     fn mul(self, rhs: T) -> Self::Output {
         let mut lhs = self;
-        lhs.coeffs.iter_mut().for_each(|(_,v)| *v *= rhs.to_f64().unwrap());
+        lhs.coeffs
+            .iter_mut()
+            .for_each(|(_, v)| *v *= rhs.to_f64().unwrap());
         lhs.constant *= rhs.to_f64().unwrap();
         lhs
     }
@@ -391,7 +382,7 @@ impl<T: ToPrimitive> Mul<T> for &Variable {
 
     fn mul(self, rhs: T) -> Self::Output {
         let mut lhs = AffineExpression::from(self);
-        lhs* rhs
+        lhs * rhs
     }
 }
 //C * V -> AF
@@ -445,7 +436,7 @@ impl AddAssign for AffineExpression {
                 .and_modify(|lhs_v| *lhs_v += rhs_v)
                 .or_insert(rhs_v);
         });
-        self.coeffs.retain(|_, c| *c != 0.0_f64); 
+        self.coeffs.retain(|_, c| *c != 0.0_f64);
         self.constant += rhs.constant;
     }
 }
@@ -459,7 +450,7 @@ impl SubAssign for AffineExpression {
                 .or_insert(-rhs_v);
         });
 
-        self.coeffs.retain(|_, c| *c != 0.0_f64); 
+        self.coeffs.retain(|_, c| *c != 0.0_f64);
         self.constant -= rhs.constant;
     }
 }
@@ -474,7 +465,7 @@ impl AddAssign<&Variable> for AffineExpression {
                 .or_insert(rhs_v);
         });
 
-        self.coeffs.retain(|_, c| *c != 0.0_f64); 
+        self.coeffs.retain(|_, c| *c != 0.0_f64);
         self.constant += _rhs.constant;
     }
 }
@@ -489,7 +480,7 @@ impl SubAssign<&Variable> for AffineExpression {
                 .or_insert(-rhs_v);
         });
 
-        self.coeffs.retain(|_, c| *c != 0.0_f64); 
+        self.coeffs.retain(|_, c| *c != 0.0_f64);
         self.constant -= _rhs.constant;
     }
 }
@@ -559,12 +550,16 @@ impl Neg for &Variable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::var::{VariableDefinition, VarType};
+    use crate::var::{VarType, VariableDefinition};
 
     #[test]
     fn af_add_af() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -573,7 +568,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         let mut af2 = AffineExpression::from(&vb);
-        
+
         *af1.constant_mut() = 1.0_f64;
         *af2.constant_mut() = 2.0_f64;
         //(a + 1) + (b+2)
@@ -584,12 +579,15 @@ mod tests {
         let af3_comp = AffineExpression::new(coeffs, constant, env.clone());
         //(a+1)+(b+2) = a+b+3
         assert!(af3 == af3_comp);
-
     }
     #[test]
     fn af_sub_af() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -598,7 +596,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         let mut af2 = AffineExpression::from(&vb);
-        
+
         *af1.constant_mut() = 1.0_f64;
         *af2.constant_mut() = 2.0_f64;
         //(a + 1) - (b+2)
@@ -609,14 +607,16 @@ mod tests {
         let af3_comp = AffineExpression::new(coeffs, constant, env.clone());
         //(a+1)+(b+2) = a+b+3
         assert!(af3 == af3_comp);
-
     }
 
     #[test]
     fn af_add_v() {
-        
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -625,7 +625,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //(a+1)+b
         let af3 = af1 + &vb;
 
@@ -638,9 +638,12 @@ mod tests {
 
     #[test]
     fn af_sub_v() {
-        
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -649,7 +652,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //(a+1)-b
         let af3 = af1 - &vb;
 
@@ -662,9 +665,12 @@ mod tests {
 
     #[test]
     fn v_add_af() {
-        
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -673,7 +679,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //(a+1)+b
         let af3 = &vb + af1;
 
@@ -686,9 +692,12 @@ mod tests {
 
     #[test]
     fn v_sub_af() {
-        
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -697,7 +706,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //(a+1)-b
         let af3 = &vb - af1;
 
@@ -710,16 +719,18 @@ mod tests {
 
     #[test]
     fn v_add_v() {
-        
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
         let va = Variable::new(&mut env, vda);
         let vb = Variable::new(&mut env, vdb);
 
-       
         //a+b
         let af1 = &va + &vb;
 
@@ -732,16 +743,18 @@ mod tests {
 
     #[test]
     fn v_sub_v() {
-        
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
         let va = Variable::new(&mut env, vda);
         let vb = Variable::new(&mut env, vdb);
 
-       
         //(a+1)-b
         let af1 = &va - &vb;
 
@@ -754,7 +767,9 @@ mod tests {
 
     #[test]
     fn af_add_c() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -762,7 +777,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //(a+1)+2
         let af2 = af1 + 2;
 
@@ -775,7 +790,9 @@ mod tests {
 
     #[test]
     fn c_add_af() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -783,7 +800,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //(a+1)+2
         let af2 = 2 + af1;
 
@@ -796,7 +813,9 @@ mod tests {
 
     #[test]
     fn af_sub_c() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -804,7 +823,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //(a+1)-2
         let af2 = af1 - 2;
 
@@ -819,7 +838,9 @@ mod tests {
 
     #[test]
     fn c_sub_af() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -827,7 +848,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //2-(a+1)
         let af2 = 2 - af1;
 
@@ -840,13 +861,14 @@ mod tests {
 
     #[test]
     fn v_add_c() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
         let va = Variable::new(&mut env, vda);
 
-       
         //a+1
         let af1 = &va + 1;
 
@@ -859,12 +881,14 @@ mod tests {
 
     #[test]
     fn c_add_v() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
         let va = Variable::new(&mut env, vda);
-       
+
         //1+a
         let af1 = 1 + &va;
 
@@ -877,7 +901,9 @@ mod tests {
 
     #[test]
     fn v_sub_c() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -895,12 +921,14 @@ mod tests {
 
     #[test]
     fn c_sub_v() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
         let va = Variable::new(&mut env, vda);
-       
+
         //1-a
         let af1 = 1 - &va;
 
@@ -913,8 +941,12 @@ mod tests {
 
     #[test]
     fn af_addassign_af() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -923,7 +955,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         let mut af2 = AffineExpression::from(&vb);
-        
+
         *af1.constant_mut() = 1.0_f64;
         *af2.constant_mut() = 2.0_f64;
         //(a + 1) + (b+2)
@@ -934,13 +966,16 @@ mod tests {
         let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
         //(a+1)+(b+2) = a+b+3
         assert!(af1 == af1_comp);
-
     }
 
     #[test]
     fn af_subassign_af() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -949,7 +984,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         let mut af2 = AffineExpression::from(&vb);
-        
+
         *af1.constant_mut() = 1.0_f64;
         *af2.constant_mut() = 2.0_f64;
         //(a + 1) - (b+2)
@@ -960,13 +995,16 @@ mod tests {
         let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
         //(a+1)+(b+2) = a+b+3
         assert!(af1 == af1_comp);
-
     }
 
     #[test]
     fn af_addassign_v() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -974,7 +1012,7 @@ mod tests {
         let vb = Variable::new(&mut env, vdb);
 
         let mut af1 = AffineExpression::from(&va);
-        
+
         *af1.constant_mut() = 1.0_f64;
         //(a + 1) + b
         af1 += &vb;
@@ -984,13 +1022,16 @@ mod tests {
         let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
         //(a+1)+(b+2) = a+b+3
         assert!(af1 == af1_comp);
-
     }
 
     #[test]
     fn af_subassign_v() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -998,7 +1039,7 @@ mod tests {
         let vb = Variable::new(&mut env, vdb);
 
         let mut af1 = AffineExpression::from(&va);
-        
+
         *af1.constant_mut() = 1.0_f64;
         //(a + 1) - b
         af1 -= &vb;
@@ -1008,19 +1049,20 @@ mod tests {
         let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
         //(a+1)+(b+2) = a+b+3
         assert!(af1 == af1_comp);
-
     }
 
     #[test]
     fn af_addassign_c() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
         let va = Variable::new(&mut env, vda);
 
         let mut af1 = AffineExpression::from(&va);
-        
+
         *af1.constant_mut() = 1.0_f64;
         //(a + 1) + 1
         af1 += 1;
@@ -1030,13 +1072,16 @@ mod tests {
         let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
         //(a+1)+1 = a+2
         assert!(af1 == af1_comp);
-
     }
 
     #[test]
     fn af_subassign_c() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
-        let vdb = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
+        let vdb = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -1044,7 +1089,7 @@ mod tests {
         let vb = Variable::new(&mut env, vdb);
 
         let mut af1 = AffineExpression::from(&va);
-        
+
         *af1.constant_mut() = 1.0_f64;
         //(a + 1) - b
         af1 -= &vb;
@@ -1054,12 +1099,13 @@ mod tests {
         let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
         //(a+1)-b = a - b + 1
         assert!(af1 == af1_comp);
-
     }
 
     #[test]
     fn af_mul_c() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -1067,7 +1113,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //(a+1)-2
         let af2 = af1 * 2;
 
@@ -1080,7 +1126,9 @@ mod tests {
 
     #[test]
     fn c_mul_af() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
@@ -1088,7 +1136,7 @@ mod tests {
 
         let mut af1 = AffineExpression::from(&va);
         *af1.constant_mut() = 1.0_f64;
-       
+
         //2-(a+1)
         let af2 = 2 * af1;
 
@@ -1101,13 +1149,14 @@ mod tests {
 
     #[test]
     fn v_mul_c() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
         let va = Variable::new(&mut env, vda);
 
-       
         //(a+1)-2
         let af2 = &va * 2;
 
@@ -1120,7 +1169,9 @@ mod tests {
 
     #[test]
     fn c_mul_v() {
-        let vda = VariableDefinition::new(VarType::Float).with_lb(0).with_name("a".to_string());
+        let vda = VariableDefinition::new(VarType::Float)
+            .with_lb(0)
+            .with_name("a".to_string());
 
         let mut env = Environment::new();
 
