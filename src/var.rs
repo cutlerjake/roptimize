@@ -12,7 +12,7 @@ use std::fmt;
 
 use uuid::Uuid; //used for variables ID
 
-use crate::affine_expr::AffineExpression;
+use crate::{affine_expr::AffineExpression, model::Model};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum VarType {
@@ -59,7 +59,7 @@ impl VariableDefinition {
         self
     }
 
-    pub fn  with_name<T:ToString>(mut self, name: T) -> Self {
+    pub fn with_name<T: ToString>(mut self, name: T) -> Self {
         let name = name.to_string();
         self.name = name;
         self
@@ -76,13 +76,23 @@ impl VariableDefinition {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct RawModelVariable {
     pub ty: VarType,
     pub lb: Option<f64>,
     pub ub: Option<f64>,
     pub name: String,
     id: Uuid,
+}
+
+impl PartialEq for RawModelVariable {
+    fn eq(&self, other: &Self) -> bool {
+        self.ty == other.ty
+            && self.lb == other.lb
+            && self.ub == other.ub
+            && self.name == other.name
+            && self.id == other.id
+    }
 }
 
 impl Eq for RawModelVariable {}
@@ -133,10 +143,18 @@ impl RawModelVariable {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ModelVariable {
     var: Rc<RefCell<RawModelVariable>>,
 }
+
+impl PartialEq for ModelVariable {
+    fn eq(&self, other: &Self) -> bool {
+        self.var == other.var
+    }
+}
+
+impl Eq for ModelVariable {}
 
 impl Hash for ModelVariable {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -242,10 +260,16 @@ impl Environment {
     }
 }
 //should this be an affine expression? -> easier to deal with unbounded variables
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Variable {
     pub(crate) mv: ModelVariable,
     pub(crate) env: Environment,
+}
+
+impl PartialEq for Variable {
+    fn eq(&self, other: &Self) -> bool {
+        self.mv == other.mv
+    }
 }
 
 impl Eq for Variable {}
@@ -257,7 +281,6 @@ impl Hash for Variable {
 }
 
 impl fmt::Display for Variable {
-    
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.name())
     }
@@ -319,7 +342,10 @@ impl Variable {
         false
     }
 
-    pub fn as_standard_form(&self, bound_var: Option<&Variable>) -> Option<VariableTransformationInfo> {
+    pub fn as_standard_form(
+        &self,
+        bound_var: Option<&Variable>,
+    ) -> Option<VariableTransformationInfo> {
         match self.lb() {
             //lower bound at zero -> do nothing
             Some(lb) if lb == 0.0_f64 => None,
@@ -328,7 +354,9 @@ impl Variable {
             Some(lb) => {
                 //add var
                 let mut env = self.env.clone();
-                let vd = VariableDefinition::new(VarType::Float).with_lb(0).with_name(format!("{}_o", self.name().to_string()));
+                let vd = VariableDefinition::new(VarType::Float)
+                    .with_lb(0)
+                    .with_name(format!("{}_o", self.name().to_string()));
                 let var = Variable::new(&mut env, vd);
                 let t_info = VariableTransformationInfo {
                     expr: &var + lb,
@@ -339,7 +367,9 @@ impl Variable {
             //unbounded case -> sum of bounded variables
             None => {
                 let mut env = self.env.clone();
-                let vd1 = VariableDefinition::new(VarType::Float).with_lb(0).with_name(format!("{}_p", self.name().to_string()));
+                let vd1 = VariableDefinition::new(VarType::Float)
+                    .with_lb(0)
+                    .with_name(format!("{}_p", self.name().to_string()));
                 let var1 = Variable::new(&mut env, vd1);
                 let t_info = if let Some(bvar) = bound_var {
                     VariableTransformationInfo {
@@ -347,7 +377,9 @@ impl Variable {
                         added_vars: vec![var1.clone()],
                     }
                 } else {
-                    let vd2 = VariableDefinition::new(VarType::Float).with_lb(0).with_name(format!("{}_n", self.name().to_string()));
+                    let vd2 = VariableDefinition::new(VarType::Float)
+                        .with_lb(0)
+                        .with_name(format!("{}_n", self.name().to_string()));
                     let var2 = Variable::new(&mut env, vd2);
                     VariableTransformationInfo {
                         expr: &var1 + &var2,

@@ -485,7 +485,7 @@ impl Tableau {
                         row,
                         row,
                         sign,
-                        val.abs(),//numerator.abs(),
+                        val.abs(), //numerator.abs(),
                         denominator.abs(),
                         i
                     );
@@ -504,7 +504,7 @@ impl Tableau {
 impl fmt::Display for Tableau {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let table = self.as_table(TblPrintInfo::Default);
-        write!(f, "{}\n", table)
+        writeln!(f, "{}", table)
 
         //let table = self.as_tabular();
 

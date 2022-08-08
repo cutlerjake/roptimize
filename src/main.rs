@@ -2,11 +2,11 @@ mod constraint;
 // mod environment;
 mod affine_expr;
 mod model;
+mod print_table;
 mod simplex;
 mod solver;
 mod tableau;
 mod var;
-mod print_table;
 
 use var::{Environment, VarType, Variable, VariableCollection, VariableDefinition};
 
@@ -34,15 +34,13 @@ fn main() {
         //.with_lb(4.0)
         .with_name(String::from("b"));
 
-
     let var1 = Variable::new(&mut env, vd1);
     let var2 = Variable::new(&mut env, vd2);
 
     let exp1 = &var1 + &var2;
-    let exp2 = 2* &var1 + &var2;
+    let exp2 = 2 * &var1 + &var2;
 
-
-    let obj_exp = 40* &var1 + 30* &var2;
+    let obj_exp = 40 * &var1 + 30 * &var2;
 
     let cons1 = Constraint::new(exp1.clone(), Comp::Le, 12.0_f64);
     let cons2 = Constraint::new(exp2, Comp::Le, 16.0_f64);
@@ -72,12 +70,11 @@ fn main() {
     println!("Model solved!");
 
     // let mut tbl = Tableau::new(arr);
-    
+
     // println!("{:?}", tbl.tbl());
 
     // tbl.rref();
     // println!("");
 
     // println!("{:?}", tbl.tbl());
-
 }
