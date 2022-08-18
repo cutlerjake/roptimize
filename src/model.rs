@@ -1,7 +1,6 @@
-use colored::*;
 use ndarray::{s, Array2};
 use tabular::{Row, Table};
-use uuid::Uuid; //used for unique variable ID
+//used for unique variable ID
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -11,7 +10,7 @@ use crate::constraint::{Comp, Constraint};
 use crate::tableau::Tableau;
 use crate::var::{Environment, VarType, Variable, VariableDefinition, VariableTransformationInfo};
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum OptDir {
     Max,
     Min,
@@ -28,10 +27,10 @@ impl fmt::Display for OptDir {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Model {
-    pub(crate) obj_fn: AffineExpression,
-    pub(crate) opt_dir: OptDir,
-    pub(crate) constraints: Vec<Constraint>,
-    pub(crate) env: Environment,
+    pub obj_fn: AffineExpression,
+    pub opt_dir: OptDir,
+    pub constraints: Vec<Constraint>,
+    pub env: Environment,
 }
 
 pub struct ModelTransformationInfo {
@@ -51,6 +50,9 @@ impl Model {
         }
     }
 
+    pub fn obj_fn(&self) -> &AffineExpression {
+        &self.obj_fn
+    }
     //set objective function and optimization direction
     pub fn set_obj_fn(&mut self, opt_dir: OptDir, obj_fn: AffineExpression) {
         self.obj_fn = obj_fn;
@@ -69,8 +71,7 @@ impl Model {
 
     //retrieve variables from the model
     pub fn variables(&self) -> Vec<Variable> {
-        let mut vars: HashSet<Variable> =
-            self.obj_fn.variables().iter().map(|v| v.clone()).collect();
+        let mut vars: HashSet<Variable> = self.obj_fn.variables().iter().cloned().collect();
         self.constraints.iter().for_each(|c| {
             c.variables().into_iter().for_each(|v| {
                 vars.insert(v);
@@ -113,10 +114,8 @@ impl Model {
                 // mdl.var_map.insert(var.clone(), info);
                 var_map.insert(var.clone(), info);
                 if let Some(ref bvar) = bvar {
-
                     //remove bvar from expression
-                    bvar_expression += var_map[var].expr.clone() - bvar;                  
-
+                    bvar_expression += var_map[var].expr.clone() - bvar;
                 }
                 // if let Some(ref bvar) = bvar {
                 //     // build constraint
@@ -131,7 +130,8 @@ impl Model {
                 //     //add constraint to model
                 //     mdl.add_constraint(cons);
                 // }
-            } if let Some(ub) = var.ub() {
+            }
+            if let Some(ub) = var.ub() {
                 let cons = Constraint::new(var, Comp::Le, ub);
                 mdl.add_constraint(cons);
             }
@@ -196,7 +196,7 @@ impl Model {
         for (i, con) in self.constraints.iter().enumerate() {
             //ensure constraints in standard form
             assert!(
-                con.rhs().coeffs.len() == 0,
+                con.rhs().coeffs.is_empty(),
                 "Variable(s) on rhs of constraint"
             );
             assert!(con.comp() == Comp::Eq, "Non equality constraint");
@@ -215,7 +215,7 @@ impl Model {
         }
 
         //populate obj_fn
-        let mut obj_fn = vec![0.0; var_ind_map.len() + 2];
+        let _obj_fn = vec![0.0; var_ind_map.len() + 2];
         //obj_fn[var_ind_map.len()] = 1.0_f64;
         tbl[[self.constraints.len(), var_ind_map.len()]] = 1.0_f64;
         for (var, coeff) in self.obj_fn.coeffs.iter() {
@@ -232,14 +232,14 @@ impl Model {
             let mut found_one = false;
             let mut ind = 0;
             for (i, &val) in col.iter().enumerate() {
-                if (val == 1.0_f64) {
+                if val == 1.0_f64 {
                     if found_one {
                         basic = false;
                         break;
                     }
                     found_one = true;
                     ind = i;
-                } else if (val != 0.0_f64) {
+                } else if val != 0.0_f64 {
                     basic = false;
                     break;
                 }
@@ -252,9 +252,8 @@ impl Model {
         }
 
         //create tableau
-        let mut tableau = Tableau::new(tbl, var_ind_map, basic_vars);
 
-        tableau
+        Tableau::new(tbl, var_ind_map, basic_vars)
     }
 
     pub fn tbl_variable_columns_string(&self, n_vars: usize) -> String {
@@ -268,7 +267,6 @@ impl Model {
         columns += &self.tbl_variable_columns_string(2 * n_vars + 2); //rhs var, constant
         columns
     }
-
 }
 
 impl fmt::Display for Model {
@@ -308,7 +306,7 @@ impl fmt::Display for Model {
             };
             row_vec[2 * ind + 3] = format!("{}*{}", coeff.abs(), var.name());
         }
-        if (self.obj_fn.constant != 0.0_f64) | (self.obj_fn.coeffs.len() == 0) {
+        if (self.obj_fn.constant != 0.0_f64) | self.obj_fn.coeffs.is_empty() {
             row_vec[2 + 2 * vars.len()] = if self.obj_fn.constant >= 0.0 {
                 plus.clone()
             } else {
@@ -319,11 +317,11 @@ impl fmt::Display for Model {
 
         //format objfn expression to remove uneccesary first "+" if present
         for s in row_vec[2..2 * vars.len() + 4].iter_mut() {
-            if (*s == plus) {
+            if *s == plus {
                 *s = "".to_string();
                 break;
             }
-            if (s != "") {
+            if !s.is_empty() {
                 break;
             }
         }
@@ -351,7 +349,7 @@ impl fmt::Display for Model {
                 };
                 cons_vec[2 * ind + 3] = format!("{}*{}", coeff.abs(), var.name());
             }
-            if (constraint.lhs().constant != 0.0_f64) | (constraint.lhs().coeffs.len() == 0) {
+            if (constraint.lhs().constant != 0.0_f64) | constraint.lhs().coeffs.is_empty() {
                 cons_vec[2 + 2 * vars.len()] = if constraint.lhs().constant >= 0.0 {
                     plus.clone()
                 } else {
@@ -362,11 +360,11 @@ impl fmt::Display for Model {
 
             //format lhs expression to remove uneccesary first "+" if present
             for s in cons_vec[2..2 * vars.len() + 4].iter_mut() {
-                if (*s == plus) {
+                if *s == plus {
                     *s = "".to_string();
                     break;
                 }
-                if (s != "") {
+                if !s.is_empty() {
                     break;
                 }
             }
@@ -384,7 +382,7 @@ impl fmt::Display for Model {
                 };
                 cons_vec[2 * ind + 6 + 2 * vars.len()] = format!("{}*{}", coeff.abs(), var.name());
             }
-            if (constraint.rhs().constant != 0.0_f64) | (constraint.rhs().coeffs.len() == 0) {
+            if (constraint.rhs().constant != 0.0_f64) | constraint.rhs().coeffs.is_empty() {
                 cons_vec[5 + 4 * vars.len()] = if constraint.rhs().constant >= 0.0 {
                     plus.clone()
                 } else {
@@ -395,11 +393,11 @@ impl fmt::Display for Model {
 
             //format rhs expression to remove uneccesary first "+" if present
             for s in cons_vec[2 * vars.len() + 5..].iter_mut() {
-                if (*s == plus) {
+                if *s == plus {
                     *s = "".to_string();
                     break;
                 }
-                if (s != "") {
+                if !s.is_empty() {
                     break;
                 }
             }

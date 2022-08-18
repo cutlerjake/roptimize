@@ -1,7 +1,7 @@
 use ndarray::{
-    s, Array, Array2, Dim, DimAdd, Slice, SliceArg, SliceInfo, SliceInfoElem, SliceNextDim,
+    s, Array2, Dim, DimAdd, SliceArg, SliceInfo, SliceInfoElem, SliceNextDim,
 };
-use std::boxed::Box;
+
 
 use unicode_width::UnicodeWidthStr;
 
@@ -73,7 +73,7 @@ impl PrintTableCell {
         self.width
     }
 
-    pub fn set_data(mut self, data: String) -> Self {
+    pub fn set_data(self, data: String) -> Self {
         Self::new(data)
     }
 }
@@ -126,7 +126,7 @@ impl PrintTable {
             .into_iter()
             .map(|row| {
                 row.iter()
-                    .fold(0, |l, cell| std::cmp::max(l, cell.data.split("\n").count()))
+                    .fold(0, |l, cell| std::cmp::max(l, cell.data.split('\n').count()))
             })
             .collect::<Vec<usize>>()
     }
@@ -195,12 +195,12 @@ impl PrintTable {
 }
 
 impl fmt::Display for PrintTable {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
         //print table row by row
-        let col_widths = self.col_widths();
-        let row_heights = self.row_heights();
+        let _col_widths = self.col_widths();
+        let _row_heights = self.row_heights();
 
-        for(i, row) in self.borders.rows().into_iter().enumerate() {
+        for(i, _row) in self.borders.rows().into_iter().enumerate() {
             if i%2 != 0 {
                 //print cells
             }
@@ -208,7 +208,7 @@ impl fmt::Display for PrintTable {
 
         }
 
-        for (i, row) in self.cells.rows().into_iter().enumerate() {}
+        for (_i, _row) in self.cells.rows().into_iter().enumerate() {}
         Ok(())
     }
 }

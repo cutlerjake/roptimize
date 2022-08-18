@@ -1,19 +1,25 @@
-use crate::var::Variable;
+use crate::model::Model;
+use crate::var::{self, Variable};
 
-use ndarray::{s, stack, Array, Array1, Array2, ArrayView, Axis, Slice, Zip};
+use ndarray::linalg::Dot;
+use ndarray::{s, Array, Array1, Array2, ArrayView, Axis, Slice, Zip};
 
-use std::cmp::Ordering;
+use sprs::prod::{csc_mulacc_dense_colmaj, csc_mulacc_dense_rowmaj, mul_acc_mat_vec_csc};
+use sprs::smmp::mul_csr_csr;
+use sprs::{CompressedStorage, CsMat, CsVec};
+
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::RangeBounds;
+use std::{cmp::Ordering, iter::Enumerate};
+
+use rustc_hash::FxHashSet;
 
 use tabled::{
     builder::Builder,
-    object::{Cell, Columns, Object, Rows, Segment},
+    object::{Cell, Columns, Object, Rows},
     style::Border,
-    Highlight, Modify, Style, Table,
+    Modify, Style, Table,
 };
-use tabular;
 
 #[derive(Copy, Clone, Debug, Hash)]
 pub enum TblPrintInfo {
@@ -58,6 +64,303 @@ impl TableauIx {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+struct CooElem {
+    pub row: usize,
+    pub col: usize,
+    pub data: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SparseTableau {
+    pub constraints: CsMat<f64>,
+    pub obj_fn: CsVec<f64>,
+    pub basis: CsMat<f64>,
+    pub basic_vars: Vec<usize>,
+    pub non_basic_vars: FxHashSet<usize>,
+    pub var_map: HashMap<Variable, usize>,
+}
+
+impl From<&Model> for SparseTableau {
+    fn from(mdl: &Model) -> Self {
+        Self::new(mdl)
+    }
+}
+
+impl From<Tableau> for SparseTableau {
+    fn from(tbl: Tableau) -> Self {
+        // pub struct Tableau {
+        //     pub(crate) tbl: Array2<f64>,
+        //     pub(crate) vars: HashMap<Variable, usize>,
+        //     pub(crate) basic_vars: Vec<usize>,
+        // }
+
+        //extract data from tableau
+        let mut constraints = CsMat::csc_from_dense(tbl.tbl.slice(s![..-1, ..-2]), 1e-6);
+        constraints = constraints.append_outer(tbl.tbl.slice(s![..-1, -1]).to_vec().as_slice());
+        let var_map = tbl.vars;
+        let basic_vars = tbl.basic_vars;
+
+        //create obj_fn
+        let (inds, dstorage): (Vec<usize>, Vec<f64>) = tbl
+            .tbl
+            .slice(s![-1, ..])
+            .iter()
+            .enumerate()
+            .filter(|(i, val)| val.abs() > 1e-6 && *i != tbl.tbl.shape()[1] - 2)
+            .map(|(i, val)| {
+                if i < tbl.tbl.shape()[1] - 2 {
+                    (i, val)
+                } else {
+                    (i - 1, val)
+                }
+            })
+            .unzip();
+
+        let obj_fn = CsVec::new(constraints.cols(), inds, dstorage);
+
+        //construct basis
+        let mut basis_dense =
+            Array2::<f64>::from_elem((constraints.rows(), constraints.rows()), 0.0);
+
+        basic_vars.iter().enumerate().for_each(|(i, &bvar_ind)| {
+            basis_dense
+                .slice_mut(s![.., i])
+                .assign(&tbl.tbl.slice(s![..-1, bvar_ind]));
+        });
+        let basis = CsMat::csc_from_dense(basis_dense.view(), 1e-6);
+
+        //get non basic inds
+        let non_basic_vars = (0..constraints.cols() - 1)
+            .into_iter()
+            .filter(|i| !basic_vars.contains(i))
+            .collect::<FxHashSet<usize>>();
+
+        Self {
+            constraints,
+            obj_fn,
+            basis,
+            basic_vars,
+            non_basic_vars,
+            var_map,
+        }
+    }
+}
+
+impl SparseTableau {
+    pub fn constraints(&self) -> &CsMat<f64> {
+        &self.constraints
+    }
+    pub fn obj_fn(&self) -> &CsVec<f64> {
+        &self.obj_fn
+    }
+    pub fn basis(&self) -> &CsMat<f64> {
+        &self.basis
+    }
+    pub fn basic_vars(&self) -> &Vec<usize> {
+        &self.basic_vars
+    }
+    pub fn non_basic_vars(&self) -> &FxHashSet<usize> {
+        &self.non_basic_vars
+    }
+    pub fn var_map(&self) -> &HashMap<Variable, usize> {
+        &self.var_map
+    }
+
+    pub fn new(mdl: &Model) -> Self {
+        let var_index_map = mdl.variable_index_map();
+        let nrows = mdl.constraints.len();
+        let ncols = var_index_map.len() + 1;
+
+        //create constraint matrix in COO format
+        let mut coo = Vec::new();
+
+        for (row, constraint) in mdl.constraints.iter().enumerate() {
+            //populate lhs of constraint
+            for (var, coeff) in &constraint.lhs.coeffs {
+                if *coeff != 0.0 {
+                    coo.push(CooElem {
+                        row,
+                        col: var_index_map[var],
+                        data: *coeff,
+                    });
+                }
+            }
+            //populate rhs of constrain
+            if constraint.rhs.constant != 0.0 {
+                coo.push(CooElem {
+                    row,
+                    col: var_index_map.len(),
+                    data: constraint.rhs.constant,
+                })
+            }
+        }
+
+        //sort by column, then row
+        coo.sort_unstable_by_key(|elem| (elem.col, elem.row));
+
+        //create column indices (cumulative nnz by beginning of each col)
+        let (indptr, _) =
+            coo.iter()
+                .enumerate()
+                .fold((vec![0; 2], 0), |(mut indptr, mut cur_col), (i, elem)| {
+                    let mut back = indptr.len() - 1;
+
+                    while cur_col < elem.col {
+                        indptr.push(indptr[back]);
+                        back += 1;
+                        cur_col += 1;
+                    }
+                    indptr[back] += 1;
+                    (indptr, cur_col)
+                });
+
+        //create row inds and data storage
+        let (indices, dstorage): (Vec<usize>, Vec<f64>) =
+            coo.into_iter().map(|elem| (elem.row, elem.data)).unzip();
+
+        //create constraint matrix in CSC format
+        let constraints =
+            CsMat::new_from_unsorted_csc((nrows, ncols), indptr, indices, dstorage).unwrap();
+
+        //create obj vec
+        let (inds, data): (Vec<usize>, Vec<f64>) = mdl
+            .obj_fn
+            .coeffs
+            .iter()
+            .map(|(var, coeff)| (var_index_map[var], coeff))
+            .unzip();
+
+        let obj_fn = CsVec::new_from_unsorted(ncols, inds, data).unwrap();
+
+        //Create basis
+        let mut basis = CsMat::empty(CompressedStorage::CSC, nrows);
+        let mut basic_vars = Vec::new();
+        let mut non_basic_vars = FxHashSet::default();
+        for (i, col) in constraints
+            .slice_outer(..constraints.cols() - 1)
+            .outer_iterator()
+            .enumerate()
+        {
+            if col.data().len() == 1
+                && col.data()[0] == 1.0
+                && basic_vars.len() < nrows
+                && basic_vars.len() < nrows
+            {
+                basis = basis.append_outer_csvec(col.clone());
+                basic_vars.push(i)
+            } else {
+                non_basic_vars.insert(i);
+            }
+        }
+        //Construct
+        Self {
+            constraints,
+            basis,
+            obj_fn,
+            basic_vars,
+            non_basic_vars,
+            var_map: var_index_map,
+        }
+    }
+
+    pub fn pivot(&mut self, ind: TableauIx) {
+        //update basic and non-basic vars
+        self.non_basic_vars.insert(self.basic_vars[ind.i()]);
+        self.basic_vars[ind.i()] = ind.j();
+        self.non_basic_vars.remove(&ind.j());
+
+        let size = self.basic_vars.len();
+
+        //let denom = self.constraints.get(ind.i(), ind.j()).unwrap_or(&0.0);
+        let mut e = CsMat::empty(CompressedStorage::CSC, size);
+        let c = self.col(ind.j());
+        let denom = c.get(ind.i()).unwrap_or(&0.0);
+        for j in 0..size {
+            if j == ind.i() {
+                for i in 0..size {
+                    if i == ind.i() {
+                        e.insert(i, j, 1.0 / denom);
+                    } else {
+                        //let numerator = self.constraints.get(i, ind.j()).unwrap_or(&0.0);
+                        let numerator = c.get(i).unwrap_or(&0.0);
+                        e.insert(i, j, -numerator / denom);
+                    }
+                }
+            } else {
+                e.insert(j, j, 1.0);
+            }
+        }
+        self.basis = &e * &self.basis;
+        //self.basis = mul_csr_csr(e.to_csr().view(), self.basis.to_csr().view());
+        //self.basis = self.basis.to_csc();
+    }
+
+    pub fn r_costs(&self) -> CsVec<f64> {
+        let (inds, dstorage) = self.nb_r_costs().unzip();
+
+        CsVec::new_from_unsorted(self.constraints.cols(), inds, dstorage).unwrap()
+    }
+
+    pub fn nb_r_costs(&self) -> impl Iterator<Item = (usize, f64)> + '_ {
+        //want to create an iterable over non basic var coeffs as efficiently as possible\
+        let (inds, dstorage): (Vec<usize>, Vec<f64>) = self
+            .basic_vars
+            .iter()
+            .enumerate()
+            .filter(|(i, col)| self.obj_fn.get(**col) != None)
+            .map(|(i, col)| (i, *self.obj_fn.get(*col).unwrap()))
+            .unzip();
+
+        let cb = CsVec::new(self.basis.rows(), inds, dstorage);
+
+        //let mut cb_dot_ab = Array1::from_elem(self.basic_vars.len(), 0.0); //.dot(&self.basis.to_dense().view());
+        let cb_dot_ab = &cb * &self.basis;
+
+        self.non_basic_vars.iter().map(move |&i| {
+            let nb = self.constraints.outer_view(i).unwrap();
+            let cn_i = self.obj_fn.get(i).unwrap_or(&0.0);
+            let delta_i = nb.dot(&cb_dot_ab);
+            (i, cn_i - delta_i)
+        })
+    }
+
+    fn z(&self) -> f64 {
+        let (inds, dstorage): (Vec<usize>, Vec<f64>) = self
+            .basic_vars
+            .iter()
+            .enumerate()
+            .filter(|(i, col)| self.obj_fn.get(**col) != None)
+            .map(|(i, col)| (i, *self.obj_fn.get(*col).unwrap()))
+            .unzip();
+
+        let cb = CsVec::new(self.basis.rows(), inds, dstorage);
+
+        let cb_dot_ab = &cb * &self.basis; //= self.basis.dot(&cb);
+
+        let b = self
+            .constraints
+            .outer_view(self.constraints.cols() - 1)
+            .unwrap();
+
+        self.obj_fn.get(self.obj_fn.dim() - 1).unwrap_or(&0.0) - cb_dot_ab.dot(&b)
+        //cb_dot_ab.dot(&b)
+    }
+
+    #[inline]
+    pub fn rhs(&self) -> CsVec<f64> {
+        self.col(self.constraints.cols() - 1)
+    }
+
+    #[inline]
+    pub fn col(&self, col: usize) -> CsVec<f64> {
+        &self.basis * &self.constraints.outer_view(col).unwrap()
+
+        // self.basis
+        //     .dot(&self.constraints.outer_view(col).unwrap().to_dense())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Tableau {
     pub(crate) tbl: Array2<f64>,
@@ -65,20 +368,46 @@ pub struct Tableau {
     pub(crate) basic_vars: Vec<usize>,
 }
 
+impl From<&SparseTableau> for Tableau {
+    fn from(sp: &SparseTableau) -> Self {
+        let rows = sp.constraints().rows() + 1;
+        let cols = sp.constraints().cols() + 1;
+        let mut tbl = Array2::from_elem((rows, cols), 0.0);
+        //populate A
+        for col in (0..cols - 2).into_iter() {
+            tbl.slice_mut(s![..-1, col]).assign(&sp.col(col).to_dense());
+        }
+        //populate b
+        tbl.slice_mut(s![..-1, cols - 1])
+            .assign(&sp.col(cols - 2).to_dense());
+        //populate obj fn
+        tbl.slice_mut(s![-1, ..-1]).assign(&sp.r_costs().to_dense());
+        //populate z
+        tbl[[rows - 1, cols - 2]] = 1.0;
+        //populate obj_fn val
+        tbl[[rows - 1, cols - 1]] = sp.z();
+        Self {
+            tbl,
+            vars: sp.var_map().clone(),
+            basic_vars: sp.basic_vars().clone(),
+        }
+    }
+}
+
 impl Tableau {
     //constructor
     pub fn new(tbl: Array2<f64>, vars: HashMap<Variable, usize>, basic_vars: Vec<usize>) -> Self {
-        return Self {
+        Self {
             tbl,
             vars,
             basic_vars,
-        };
+        }
     }
 
     //TODO!
-    pub fn set_obj_fn(&mut self, row: Vec<f64>) {}
-    pub fn add_constraint(&mut self, row: Vec<f64>) {}
-    pub fn remove_constraint(&mut self, row: usize) {}
+    pub fn set_obj_fn(&mut self, _row: Vec<f64>) {}
+    pub fn add_constraint(&mut self, _row: Vec<f64>) {}
+    pub fn remove_constraint(&mut self, _row: usize) {}
 
     pub fn append_row(&mut self, row: Vec<f64>) {
         let arr = ArrayView::from(row.as_slice())
@@ -113,20 +442,20 @@ impl Tableau {
         assert!(self.tbl.shape()[1] == mask.len(), "Incorrect mask length");
 
         //create index map
-        let ind_var_map = self
+        let _ind_var_map = self
             .vars
             .iter()
             .map(|(var, ind)| (*ind, var.clone()))
             .collect::<HashMap<usize, Variable>>();
 
         //update basic var indexes
-        let mut basic_offset = vec![0; self.basic_vars.len()];
-        let mut var_offset = HashMap::<Variable, usize>::new();
+        let _basic_offset = vec![0; self.basic_vars.len()];
+        let _var_offset = HashMap::<Variable, usize>::new();
         let mask_indices = mask
             .iter()
             .enumerate()
-            .filter(|(i, &flag)| !flag)
-            .map(|(i, &flag)| i)
+            .filter(|(_i, &flag)| !flag)
+            .map(|(i, &_flag)| i)
             .collect::<Vec<usize>>();
         self.basic_vars.iter_mut().for_each(|bvar_ind| {
             *bvar_ind -= mask_indices
@@ -135,7 +464,7 @@ impl Tableau {
                 .count();
         });
 
-        self.vars.iter_mut().for_each(|(var, ind)| {
+        self.vars.iter_mut().for_each(|(_var, ind)| {
             *ind -= mask_indices
                 .iter()
                 .filter(|mask_ind| *mask_ind < ind)
@@ -192,12 +521,14 @@ impl Tableau {
                 if k != i {
                     let (row_k, row_i) = view.multi_slice_mut((s![k, ..], s![i, ..]));
                     Zip::from(row_k).and(row_i).for_each(::std::mem::swap);
+                    self.basic_vars.swap(i, k);
                 }
 
                 //normalize pivot row
                 let div = view[[i, j]];
                 let mut row_r = view.slice_mut(s![i, j..]);
                 row_r /= div;
+
                 //eliminate column
                 let col = view.slice(s![.., j]).to_owned().into_shape((m, 1)).unwrap();
                 let row = view
@@ -273,7 +604,7 @@ impl Tableau {
         for (ci, col) in tbl_slice.columns().into_iter().enumerate() {
             let (max_whole_len, max_decimal_len) = col.iter().fold((0, 0), |len, num| {
                 let s_num = num.to_string();
-                let mut s_num_it = s_num.split(".");
+                let mut s_num_it = s_num.split('.');
                 (
                     std::cmp::max(len.0, s_num_it.next().unwrap_or("").len()),
                     std::cmp::max(len.1, s_num_it.next().unwrap_or("").len()),
@@ -294,7 +625,7 @@ impl Tableau {
                 };
 
                 let s_num = coeff.abs().to_string();
-                let mut s_num_it = s_num.split(".");
+                let mut s_num_it = s_num.split('.');
 
                 let s_whole_num = match s_num_it.next() {
                     Some(whole_num) => {
@@ -336,11 +667,11 @@ impl Tableau {
         table
     }
 
-    pub fn print_pivot(&self, pivot_ind: TableauIx) {}
+    pub fn print_pivot(&self, _pivot_ind: TableauIx) {}
 
     pub fn as_table_builder(&self, info: TblPrintInfo) -> Builder {
         let mut builder = Builder::default();
-        let offset = match info {
+        let _offset = match info {
             TblPrintInfo::Default => 0,
             TblPrintInfo::Pivot(_) => 1,
         };
@@ -350,7 +681,7 @@ impl Tableau {
         //build header row
         let mut header =
             vec!["".to_string(); self.tbl.shape()[1] + 1 + left_padding + right_padding];
-        header[0 + left_padding] = "Basic Vars".to_string();
+        header[left_padding] = "Basic Vars".to_string();
         self.vars
             .iter()
             .for_each(|(var, ind)| header[ind + 1 + left_padding] = var.name().to_string());
@@ -412,7 +743,7 @@ impl Tableau {
         table = table
             .with(
                 Modify::new(
-                    Rows::single(0 + top_padding)
+                    Rows::single(top_padding)
                         .not(Columns::new(0..left_padding))
                         .not(Columns::new(ncols - right_padding..ncols)),
                 )
@@ -428,7 +759,7 @@ impl Tableau {
             )
             .with(
                 Modify::new(
-                    Columns::single(0 + left_padding)
+                    Columns::single(left_padding)
                         .not(Rows::new(0..top_padding))
                         .not(Rows::new(nrows - bottom_padding..nrows)),
                 )
@@ -443,11 +774,11 @@ impl Tableau {
                 .with(Border::default().left('│')),
             )
             .with(
-                Modify::new(Cell(0 + top_padding, 0 + left_padding))
+                Modify::new(Cell(top_padding, left_padding))
                     .with(Border::default().bottom_right_corner('┼')),
             )
             .with(
-                Modify::new(Cell(nrows - 1 - bottom_padding, 0 + left_padding))
+                Modify::new(Cell(nrows - 1 - bottom_padding, left_padding))
                     .with(Border::default().top_right_corner('┼')),
             )
             .with(
@@ -455,7 +786,7 @@ impl Tableau {
                     .with(Border::default().top_left_corner('┼')),
             )
             .with(
-                Modify::new(Cell(0 + top_padding, ncols - 1 - right_padding))
+                Modify::new(Cell(top_padding, ncols - 1 - right_padding))
                     .with(Border::default().bottom_left_corner('┼')),
             );
 
@@ -466,11 +797,11 @@ impl Tableau {
                 table = table
                     .with(
                         Modify::new(Cell(i + 1 + top_padding, 0))
-                            .with(|s: &str| "Leaving".to_string()),
+                            .with(|_s: &str| "Leaving".to_string()),
                     )
                     .with(
                         Modify::new(Cell(0, j + 1 + left_padding))
-                            .with(|s: &str| "Entering".to_string()),
+                            .with(|_s: &str| "Entering".to_string()),
                     );
 
                 for (row, val) in self.tbl.slice(s![..-1, j]).iter().enumerate() {
@@ -491,7 +822,7 @@ impl Tableau {
                     );
                     table = table.with(
                         Modify::new(Cell(row + 1 + top_padding, ncols - 1))
-                            .with(|s: &str| annotation.to_string()),
+                            .with(|_s: &str| annotation.to_string()),
                     );
                 }
 

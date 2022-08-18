@@ -1,3 +1,5 @@
+#[allow(unused_variables, dead_code)]
+#[cfg_attr(feature = "cargo-clippy", allow(dead_code, unused_variables))]
 mod constraint;
 // mod environment;
 mod affine_expr;
@@ -11,18 +13,15 @@ mod var;
 use var::{Environment, VarType, Variable, VariableCollection, VariableDefinition};
 
 use crate::{
-    affine_expr::AffineExpression,
     constraint::{Comp, Constraint},
     model::{Model, OptDir},
     simplex::Simplex,
-    tableau::Tableau,
+    tableau::{SparseTableau, Tableau, TableauIx},
     //solver::Solver,
 };
 
-use ndarray::{array, Array2};
-
 fn main() {
-    let mut coll = VariableCollection::new();
+    let _coll = VariableCollection::new();
 
     let mut env = Environment::new();
 
@@ -44,7 +43,7 @@ fn main() {
 
     let cons1 = Constraint::new(exp1.clone(), Comp::Le, 12.0_f64);
     let cons2 = Constraint::new(exp2, Comp::Le, 16.0_f64);
-    let cons3 = Constraint::new(exp1.clone(), Comp::Ge, 4.0_f64);
+    let cons3 = Constraint::new(exp1, Comp::Ge, 4.0_f64);
     let mut model = Model::new(env.clone());
 
     model.set_obj_fn(OptDir::Max, obj_exp);
@@ -54,7 +53,80 @@ fn main() {
 
     println!("model:\n{}", model);
 
-    println!("standardized model:\n{}", model.as_standard_form(true).mdl);
+    let std_mdl = model.as_standard_form(true);
+
+    let dt = std_mdl.mdl.as_tableau();
+
+    let mut dense = std_mdl.mdl.as_tableau();
+    let mut sp = SparseTableau::from(dense.clone());
+
+    println!("standardized model:\n{}", std_mdl.mdl);
+    println!("{}", dense);
+
+    // for _ in 0..2 {
+    //     println!("______________________________________________________");
+    //     println!("Dense model:\n{}\n", dense);
+    //     println!("Sparse:");
+    //     println!(
+    //         "\tConstraints:\n{}",
+    //         format!("\t{}", sp.constraints.to_dense()).replace("\n", "\n\t")
+    //     );
+    //     println!(
+    //         "\tBasis ({:?}):\n{}\n",
+    //         sp.basis.shape(),
+    //         format!("\t{}", sp.basis.to_dense()).replace("\n", "\n\t")
+    //     );
+    //     println!("\tRelative costs:\n\t{:?}", sp.r_costs().to_dense());
+    //     println!(
+    //         "\tSP to Dense: \n{}",
+    //         format!("\t{}", Tableau::from(&sp)).replace("\n", "\n\t")
+    //     );
+
+    //     let (j, _) = sp
+    //         .obj_fn
+    //         .iter()
+    //         .max_by(|(i1, val1), (i2, val2)| val1.partial_cmp(val2).unwrap())
+    //         .unwrap();
+    //     let i = 2;
+    //     let ix = TableauIx::new(i, j);
+
+    //     println!("Pivot ind: {:?}", ix);
+
+    //     sp.pivot(ix);
+    //     dense.pivot(&ix);
+    // }
+
+    // println!("Tableau: \n{}\n", sp.constraints.to_dense());
+    // println!(
+    //     "\tOriginal Basis:\n{}\n",
+    //     format!("\t{}", sp.basis.to_dense()).replace("\n", "\n\t")
+    // );
+    // println!("Relative costs:\n\t{:?}", sp.r_costs().to_dense());
+
+    // println!("SP to Dense: \n{}", Tableau::from(&sp));
+
+    // let (j, _) = sp
+    //     .obj_fn
+    //     .iter()
+    //     .max_by(|(i1, val1), (i2, val2)| val1.partial_cmp(val2).unwrap())
+    //     .unwrap();
+    // let i = 2;
+    // let ix = TableauIx::new(i, j);
+
+    // println!("Pivot ind: {:?}", ix);
+
+    // sp.pivot(ix);
+
+    // println!("Tableau: \n{}\n", sp.constraints.to_dense());
+    // println!(
+    //     "\tPivot 1 Basis:\n{}\n",
+    //     format!("\t{}", sp.basis.to_dense()).replace("\n", "\n\t")
+    // );
+    // println!(
+    //     "Reletive costs:\n\t{:?}",
+    //     sp.nb_r_costs().collect::<Vec<(usize, f64)>>()
+    // );
+
     // let std = model.as_standard_form(true);
 
     // println!("{}", std.mdl);

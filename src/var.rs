@@ -2,9 +2,6 @@ use num::ToPrimitive;
 use std::{
     cell::{Ref, RefCell, RefMut},
     hash::{Hash, Hasher},
-    ops::{
-        Add, AddAssign, Deref, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign,
-    },
     rc::Rc,
 };
 
@@ -12,7 +9,7 @@ use std::fmt;
 
 use uuid::Uuid; //used for variables ID
 
-use crate::{affine_expr::AffineExpression, model::Model};
+use crate::{affine_expr::AffineExpression};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum VarType {
@@ -356,11 +353,11 @@ impl Variable {
                 let mut env = self.env.clone();
                 let vd = VariableDefinition::new(VarType::Float)
                     .with_lb(0)
-                    .with_name(format!("{}_o", self.name().to_string()));
+                    .with_name(format!("{}_o", self.name()));
                 let var = Variable::new(&mut env, vd);
                 let t_info = VariableTransformationInfo {
                     expr: &var + lb,
-                    added_vars: vec![var.clone()],
+                    added_vars: vec![var],
                 };
                 Some(t_info)
             }
@@ -369,21 +366,21 @@ impl Variable {
                 let mut env = self.env.clone();
                 let vd1 = VariableDefinition::new(VarType::Float)
                     .with_lb(0)
-                    .with_name(format!("{}_p", self.name().to_string()));
+                    .with_name(format!("{}_p", self.name()));
                 let var1 = Variable::new(&mut env, vd1);
                 let t_info = if let Some(bvar) = bound_var {
                     VariableTransformationInfo {
                         expr: &var1 + bvar,
-                        added_vars: vec![var1.clone()],
+                        added_vars: vec![var1],
                     }
                 } else {
                     let vd2 = VariableDefinition::new(VarType::Float)
                         .with_lb(0)
-                        .with_name(format!("{}_n", self.name().to_string()));
+                        .with_name(format!("{}_n", self.name()));
                     let var2 = Variable::new(&mut env, vd2);
                     VariableTransformationInfo {
                         expr: &var1 + &var2,
-                        added_vars: vec![var1.clone(), var2.clone()],
+                        added_vars: vec![var1, var2],
                     }
                 };
                 Some(t_info)

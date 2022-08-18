@@ -1,17 +1,15 @@
-use crate::var::{Environment, ModelVariable, Variable, VariableCollection};
+use crate::var::{Environment, Variable};
 use num::ToPrimitive;
-use std::cell::{Ref, RefCell, RefMut};
-use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::collections::{HashMap, HashSet};
+
+use std::collections::hash_map::Entry::Occupied;
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Add, AddAssign, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-use std::rc::Rc;
-use uuid::Uuid;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AffineExpression {
-    pub(crate) coeffs: HashMap<Variable, f64>,
-    pub(crate) constant: f64,
+    pub coeffs: HashMap<Variable, f64>,
+    pub constant: f64,
 }
 
 impl fmt::Display for AffineExpression {
@@ -37,7 +35,7 @@ impl From<&Variable> for AffineExpression {
         let mut coeffs = HashMap::new();
         coeffs.insert(var.clone(), 1.0_f64);
         let constant = 0.0_f64;
-        let env = var.env().clone();
+        let _env = var.env();
 
         Self { coeffs, constant }
     }
@@ -58,7 +56,7 @@ impl AffineExpression {
         Self { coeffs, constant }
     }
 
-    pub fn new_empty(env: Environment) -> Self {
+    pub fn new_empty(_env: Environment) -> Self {
         Self {
             coeffs: HashMap::new(),
             constant: 0.0_f64,
@@ -69,6 +67,7 @@ impl AffineExpression {
         self.coeffs.clear();
         self.constant = 0.0_f64;
     }
+
     pub fn variables(&self) -> Vec<Variable> {
         self.coeffs.iter().map(|(k, _v)| k.clone()).collect()
     }
@@ -95,7 +94,7 @@ impl AffineExpression {
 
         if let Occupied(coeff) = self.coeffs.entry(var) {
             //remove variable from expression
-            let (var, c) = coeff.remove_entry();
+            let (_var, c) = coeff.remove_entry();
             //add expresiion
             let mut expr = expr;
             expr *= c;
@@ -381,7 +380,7 @@ impl<T: ToPrimitive> Mul<T> for &Variable {
     type Output = AffineExpression;
 
     fn mul(self, rhs: T) -> Self::Output {
-        let mut lhs = AffineExpression::from(self);
+        let lhs = AffineExpression::from(self);
         lhs * rhs
     }
 }
@@ -392,7 +391,7 @@ macro_rules! var_left_scalar_mul_v_impl(
             type Output = AffineExpression;
 
             fn mul(self, rhs: &Variable) -> Self::Output {
-                let mut rhs = AffineExpression::from(rhs);
+                let rhs = AffineExpression::from(rhs);
                 rhs * self.to_f64().unwrap()
             }
         }
@@ -503,7 +502,7 @@ impl<T: ToPrimitive> MulAssign<T> for AffineExpression {
     fn mul_assign(&mut self, rhs: T) {
         self.coeffs
             .iter_mut()
-            .for_each(|(key, val)| *val *= rhs.to_f64().unwrap());
+            .for_each(|(_key, val)| *val *= rhs.to_f64().unwrap());
         self.constant *= rhs.to_f64().unwrap();
     }
 }
@@ -513,7 +512,7 @@ impl<T: ToPrimitive> DivAssign<T> for AffineExpression {
     fn div_assign(&mut self, rhs: T) {
         self.coeffs
             .iter_mut()
-            .for_each(|(key, val)| *val /= rhs.to_f64().unwrap());
+            .for_each(|(_key, val)| *val /= rhs.to_f64().unwrap());
         self.constant /= rhs.to_f64().unwrap();
     }
 }
@@ -523,7 +522,7 @@ impl Neg for AffineExpression {
     type Output = AffineExpression;
 
     fn neg(self) -> Self::Output {
-        let mut af = self.clone();
+        let mut af = self;
         af *= -1;
         af
     }
@@ -534,7 +533,7 @@ impl Neg for Variable {
     type Output = AffineExpression;
 
     fn neg(self) -> Self::Output {
-        let mut af = AffineExpression::from(&self);
+        let af = AffineExpression::from(&self);
         -af
     }
 }
@@ -542,7 +541,7 @@ impl Neg for &Variable {
     type Output = AffineExpression;
 
     fn neg(self) -> Self::Output {
-        let mut af = AffineExpression::from(self);
+        let af = AffineExpression::from(self);
         -af
     }
 }
@@ -574,9 +573,9 @@ mod tests {
         //(a + 1) + (b+2)
         let af3 = af1 + af2;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb, 1.0_f64)]);
         let constant = 3.0_f64;
-        let af3_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af3_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+(b+2) = a+b+3
         assert!(af3 == af3_comp);
     }
@@ -602,9 +601,9 @@ mod tests {
         //(a + 1) - (b+2)
         let af3 = af1 - af2;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), -1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb, -1.0_f64)]);
         let constant = -1.0_f64;
-        let af3_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af3_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+(b+2) = a+b+3
         assert!(af3 == af3_comp);
     }
@@ -629,9 +628,9 @@ mod tests {
         //(a+1)+b
         let af3 = af1 + &vb;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb, 1.0_f64)]);
         let constant = 1.0_f64;
-        let af3_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af3_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af3 == af3_comp);
     }
@@ -656,9 +655,9 @@ mod tests {
         //(a+1)-b
         let af3 = af1 - &vb;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), -1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb, -1.0_f64)]);
         let constant = 1.0_f64;
-        let af3_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af3_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af3 == af3_comp);
     }
@@ -683,9 +682,9 @@ mod tests {
         //(a+1)+b
         let af3 = &vb + af1;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb, 1.0_f64)]);
         let constant = 1.0_f64;
-        let af3_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af3_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af3 == af3_comp);
     }
@@ -710,9 +709,9 @@ mod tests {
         //(a+1)-b
         let af3 = &vb - af1;
 
-        let coeffs = HashMap::from([(va.clone(), -1.0_f64), (vb.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, -1.0_f64), (vb, 1.0_f64)]);
         let constant = -1.0_f64;
-        let af3_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af3_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af3 == af3_comp);
     }
@@ -734,9 +733,9 @@ mod tests {
         //a+b
         let af1 = &va + &vb;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb, 1.0_f64)]);
         let constant = 0.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af1 == af1_comp);
     }
@@ -758,9 +757,9 @@ mod tests {
         //(a+1)-b
         let af1 = &va - &vb;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), -1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb, -1.0_f64)]);
         let constant = 0.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af1 == af1_comp);
     }
@@ -781,9 +780,9 @@ mod tests {
         //(a+1)+2
         let af2 = af1 + 2;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64)]);
         let constant = 3.0_f64;
-        let af2_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af2_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af2 == af2_comp);
     }
@@ -804,9 +803,9 @@ mod tests {
         //(a+1)+2
         let af2 = 2 + af1;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64)]);
         let constant = 3.0_f64;
-        let af2_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af2_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af2 == af2_comp);
     }
@@ -827,9 +826,9 @@ mod tests {
         //(a+1)-2
         let af2 = af1 - 2;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64)]);
         let constant = -1.0_f64;
-        let af2_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af2_comp = AffineExpression::new(coeffs, constant);
         //(a+1)-2 = a-1
         println!("{}", af2);
         println!("{}", af2_comp);
@@ -852,9 +851,9 @@ mod tests {
         //2-(a+1)
         let af2 = 2 - af1;
 
-        let coeffs = HashMap::from([(va.clone(), -1.0_f64)]);
+        let coeffs = HashMap::from([(va, -1.0_f64)]);
         let constant = 1.0_f64;
-        let af2_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af2_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af2 == af2_comp);
     }
@@ -872,9 +871,9 @@ mod tests {
         //a+1
         let af1 = &va + 1;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64)]);
         let constant = 1.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //a+1= a+1
         assert!(af1 == af1_comp);
     }
@@ -892,9 +891,9 @@ mod tests {
         //1+a
         let af1 = 1 + &va;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64)]);
         let constant = 1.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //1+a= a+1
         assert!(af1 == af1_comp);
     }
@@ -912,9 +911,9 @@ mod tests {
         //a-1
         let af1 = &va - 1;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64)]);
         let constant = -1.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //a-1 = a-1
         assert!(af1 == af1_comp);
     }
@@ -932,9 +931,9 @@ mod tests {
         //1-a
         let af1 = 1 - &va;
 
-        let coeffs = HashMap::from([(va.clone(), -1.0_f64)]);
+        let coeffs = HashMap::from([(va, -1.0_f64)]);
         let constant = 1.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //1-a = 1-a
         assert!(af1 == af1_comp);
     }
@@ -961,9 +960,9 @@ mod tests {
         //(a + 1) + (b+2)
         af1 += af2;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb, 1.0_f64)]);
         let constant = 3.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+(b+2) = a+b+3
         assert!(af1 == af1_comp);
     }
@@ -990,9 +989,9 @@ mod tests {
         //(a + 1) - (b+2)
         af1 -= af2;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), -1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb, -1.0_f64)]);
         let constant = -1.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+(b+2) = a+b+3
         assert!(af1 == af1_comp);
     }
@@ -1017,9 +1016,9 @@ mod tests {
         //(a + 1) + b
         af1 += &vb;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb.clone(), 1.0_f64)]);
         let constant = 1.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+(b+2) = a+b+3
         assert!(af1 == af1_comp);
     }
@@ -1044,9 +1043,9 @@ mod tests {
         //(a + 1) - b
         af1 -= &vb;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), -1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb.clone(), -1.0_f64)]);
         let constant = 1.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+(b+2) = a+b+3
         assert!(af1 == af1_comp);
     }
@@ -1067,9 +1066,9 @@ mod tests {
         //(a + 1) + 1
         af1 += 1;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64)]);
         let constant = 2.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+1 = a+2
         assert!(af1 == af1_comp);
     }
@@ -1094,9 +1093,9 @@ mod tests {
         //(a + 1) - b
         af1 -= &vb;
 
-        let coeffs = HashMap::from([(va.clone(), 1.0_f64), (vb.clone(), -1.0_f64)]);
+        let coeffs = HashMap::from([(va, 1.0_f64), (vb.clone(), -1.0_f64)]);
         let constant = 1.0_f64;
-        let af1_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af1_comp = AffineExpression::new(coeffs, constant);
         //(a+1)-b = a - b + 1
         assert!(af1 == af1_comp);
     }
@@ -1117,9 +1116,9 @@ mod tests {
         //(a+1)-2
         let af2 = af1 * 2;
 
-        let coeffs = HashMap::from([(va.clone(), 2.0_f64)]);
+        let coeffs = HashMap::from([(va, 2.0_f64)]);
         let constant = 2.0_f64;
-        let af2_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af2_comp = AffineExpression::new(coeffs, constant);
         //(a+1)-2 = a-1
         assert!(af2 == af2_comp);
     }
@@ -1140,9 +1139,9 @@ mod tests {
         //2-(a+1)
         let af2 = 2 * af1;
 
-        let coeffs = HashMap::from([(va.clone(), 2.0_f64)]);
+        let coeffs = HashMap::from([(va, 2.0_f64)]);
         let constant = 2.0_f64;
-        let af2_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af2_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af2 == af2_comp);
     }
@@ -1160,9 +1159,9 @@ mod tests {
         //(a+1)-2
         let af2 = &va * 2;
 
-        let coeffs = HashMap::from([(va.clone(), 2.0_f64)]);
+        let coeffs = HashMap::from([(va, 2.0_f64)]);
         let constant = 0.0_f64;
-        let af2_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af2_comp = AffineExpression::new(coeffs, constant);
         //(a+1)-2 = a-1
         assert!(af2 == af2_comp);
     }
@@ -1180,9 +1179,9 @@ mod tests {
         //2-(a+1)
         let af2 = 2 * &va;
 
-        let coeffs = HashMap::from([(va.clone(), 2.0_f64)]);
+        let coeffs = HashMap::from([(va, 2.0_f64)]);
         let constant = 0.0_f64;
-        let af2_comp = AffineExpression::new(coeffs, constant, env.clone());
+        let af2_comp = AffineExpression::new(coeffs, constant);
         //(a+1)+b= a+b+1
         assert!(af2 == af2_comp);
     }

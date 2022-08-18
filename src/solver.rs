@@ -1,6 +1,6 @@
 use crate::affine_expr::AffineExpression;
 use crate::model::Model;
-use crate::simplex::Simplex;
+
 use crate::var::Variable;
 
 use std::collections::HashMap;
@@ -53,7 +53,7 @@ pub struct Solver<T: SolveAlgorithm> {
 impl<T: SolveAlgorithm> Solver<T> {
     fn new(mdl: Model, solve_algo: T) -> Self {
         Self {
-            mdl: mdl,
+            mdl,
             solve_algo,
         }
     }

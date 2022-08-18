@@ -2,9 +2,9 @@ use std::collections::HashSet;
 use std::fmt;
 
 use crate::affine_expr::AffineExpression;
-use crate::var::{Environment, VarType, Variable, VariableDefinition};
+use crate::var::{VarType, Variable, VariableDefinition};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Comp {
     Le, // <=
     Ge, // >=
@@ -12,7 +12,6 @@ pub enum Comp {
 }
 
 impl fmt::Display for Comp {
-    
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Comp::Le => write!(f, "\u{2264}"),
@@ -24,13 +23,12 @@ impl fmt::Display for Comp {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Constraint {
-    lhs: AffineExpression,
-    comp: Comp,
-    rhs: AffineExpression,
+    pub lhs: AffineExpression,
+    pub comp: Comp,
+    pub rhs: AffineExpression,
 }
 
 impl fmt::Display for Constraint {
-    
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {} {}", self.lhs, self.comp, self.rhs)
     }
@@ -43,8 +41,16 @@ pub struct ConstraintTransformationInfo {
 }
 
 impl Constraint {
-    pub fn new<T: Into<AffineExpression>, U: Into<AffineExpression>>(lhs: T, comp: Comp, rhs: U) -> Self {
-        Self { lhs: lhs.into(), comp, rhs: rhs.into() }
+    pub fn new<T: Into<AffineExpression>, U: Into<AffineExpression>>(
+        lhs: T,
+        comp: Comp,
+        rhs: U,
+    ) -> Self {
+        Self {
+            lhs: lhs.into(),
+            comp,
+            rhs: rhs.into(),
+        }
     }
 
     pub fn lhs(&self) -> &AffineExpression {
@@ -102,25 +108,33 @@ impl Constraint {
         match comp {
             Comp::Le => {
                 //add slack variable to lhs
-                let vd = VariableDefinition::new(VarType::Float).with_lb(0.0).with_name("S".to_string() + suffix.as_str());
+                let vd = VariableDefinition::new(VarType::Float)
+                    .with_lb(0.0)
+                    .with_name("S".to_string() + suffix.as_str());
                 let svar = Variable::new(&mut env, vd);
                 slack_vars.push(svar.clone());
                 lhs += &svar;
             }
             Comp::Eq => {
                 //add artificial variable to rhs
-                let vd = VariableDefinition::new(VarType::Float).with_lb(0.0).with_name("A".to_string() + suffix.as_str());
+                let vd = VariableDefinition::new(VarType::Float)
+                    .with_lb(0.0)
+                    .with_name("A".to_string() + suffix.as_str());
                 let avar = Variable::new(&mut env, vd);
                 artificial_vars.push(avar.clone());
                 lhs += &avar;
             }
             Comp::Ge => {
                 //add artificial and slack variable to rhs
-                let vd = VariableDefinition::new(VarType::Float).with_lb(0.0).with_name("A".to_string() + suffix.as_str());
+                let vd = VariableDefinition::new(VarType::Float)
+                    .with_lb(0.0)
+                    .with_name("A".to_string() + suffix.as_str());
                 let avar = Variable::new(&mut env, vd);
                 artificial_vars.push(avar.clone());
                 //add slack varibale (surplus)
-                let vd = VariableDefinition::new(VarType::Float).with_lb(0.0).with_name("S".to_string() + suffix.as_str());
+                let vd = VariableDefinition::new(VarType::Float)
+                    .with_lb(0.0)
+                    .with_name("S".to_string() + suffix.as_str());
                 let svar = Variable::new(&mut env, vd);
                 slack_vars.push(svar.clone());
                 lhs += &avar;
@@ -130,14 +144,12 @@ impl Constraint {
 
         let cons = Constraint::new(lhs, Comp::Eq, rhs);
 
-
         ConstraintTransformationInfo {
             cons,
             slack_vars,
             artificial_vars,
         }
     }
-
 
     pub fn contains_var(&self, var: &Variable) -> bool {
         self.lhs.contains_var(var) || self.rhs.contains_var(var)
