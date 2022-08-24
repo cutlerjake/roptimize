@@ -10,6 +10,7 @@ mod solver;
 mod tableau;
 mod var;
 
+use ndarray::s;
 use var::{Environment, VarType, Variable, VariableCollection, VariableDefinition};
 
 use crate::{
@@ -61,7 +62,10 @@ fn main() {
     let mut sp = SparseTableau::from(dense.clone());
 
     println!("standardized model:\n{}", std_mdl.mdl);
-    println!("{}", dense);
+
+    let mut smplx = Simplex::new();
+    smplx.solve(&model, true);
+    println!("Model solved!");
 
     // for _ in 0..2 {
     //     println!("______________________________________________________");
@@ -136,10 +140,6 @@ fn main() {
     //     [2.0, 5.0, 1.0, 5.0],
     //     [4.0, 10.0, -1.0, 1.0]
     // ];
-
-    let mut smplx = Simplex::new();
-    smplx.solve(&model, true);
-    println!("Model solved!");
 
     // let mut tbl = Tableau::new(arr);
 

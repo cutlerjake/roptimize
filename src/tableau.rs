@@ -8,7 +8,7 @@ use sprs::prod::{csc_mulacc_dense_colmaj, csc_mulacc_dense_rowmaj, mul_acc_mat_v
 use sprs::smmp::mul_csr_csr;
 use sprs::{CompressedStorage, CsMat, CsVec};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::{cmp::Ordering, iter::Enumerate};
 
@@ -234,25 +234,23 @@ impl SparseTableau {
         let obj_fn = CsVec::new_from_unsorted(ncols, inds, data).unwrap();
 
         //Create basis
-        let mut basis = CsMat::empty(CompressedStorage::CSC, nrows);
-        let mut basic_vars = Vec::new();
+        let basis = CsMat::eye_csc(nrows);
+        let mut basic_vars = vec![None; nrows];
         let mut non_basic_vars = FxHashSet::default();
         for (i, col) in constraints
             .slice_outer(..constraints.cols() - 1)
             .outer_iterator()
             .enumerate()
         {
-            if col.data().len() == 1
-                && col.data()[0] == 1.0
-                && basic_vars.len() < nrows
-                && basic_vars.len() < nrows
+            if col.data().len() == 1 && col.data()[0] == 1.0 && basic_vars[col.indices()[0]] == None
             {
-                basis = basis.append_outer_csvec(col.clone());
-                basic_vars.push(i)
+                basic_vars[col.indices()[0]] = Some(i);
             } else {
                 non_basic_vars.insert(i);
             }
         }
+        let basic_vars = basic_vars.iter().map(|i| i.unwrap()).collect();
+
         //Construct
         Self {
             constraints,
@@ -320,12 +318,14 @@ impl SparseTableau {
         self.non_basic_vars.iter().map(move |&i| {
             let nb = self.constraints.outer_view(i).unwrap();
             let cn_i = self.obj_fn.get(i).unwrap_or(&0.0);
-            let delta_i = nb.dot(&cb_dot_ab);
+            let delta_i = &cb_dot_ab.dot(&nb);
+            //let delta_i = nb.dot(&cb_dot_ab);
+            //(i, cn_i - delta_i)
             (i, cn_i - delta_i)
         })
     }
 
-    fn z(&self) -> f64 {
+    pub fn z(&self) -> f64 {
         let (inds, dstorage): (Vec<usize>, Vec<f64>) = self
             .basic_vars
             .iter()
@@ -334,7 +334,7 @@ impl SparseTableau {
             .map(|(i, col)| (i, *self.obj_fn.get(*col).unwrap()))
             .unzip();
 
-        let cb = CsVec::new(self.basis.rows(), inds, dstorage);
+        let cb = CsVec::new_from_unsorted(self.constraints.rows(), inds, dstorage).unwrap();
 
         let cb_dot_ab = &cb * &self.basis; //= self.basis.dot(&cb);
 
@@ -342,6 +342,8 @@ impl SparseTableau {
             .constraints
             .outer_view(self.constraints.cols() - 1)
             .unwrap();
+
+        //let b = self.rhs();
 
         self.obj_fn.get(self.obj_fn.dim() - 1).unwrap_or(&0.0) - cb_dot_ab.dot(&b)
         //cb_dot_ab.dot(&b)
@@ -358,6 +360,93 @@ impl SparseTableau {
 
         // self.basis
         //     .dot(&self.constraints.outer_view(col).unwrap().to_dense())
+    }
+
+    pub fn remove_vars(&mut self, vars: Vec<Variable>) {
+        //removed vars cannot be basic
+        assert!(vars
+            .iter()
+            .map(|v| {
+                let ind = self.var_map[v];
+                self.basic_vars.contains(&ind)
+            })
+            .all(|v| !v));
+
+        //build remove var index vec
+        let rm_var_inds = vars
+            .iter()
+            .map(|var| self.var_map[var])
+            .collect::<Vec<usize>>();
+
+        //remove vars from map
+        vars.iter().for_each(|var| {
+            self.var_map.remove(var);
+        });
+
+        //remove vars from non-basic set
+        rm_var_inds.iter().for_each(|ind| {
+            self.non_basic_vars.remove(&ind);
+        });
+
+        //reindex var_map
+        let mut reindexed_map = HashMap::new();
+        self.var_map.iter_mut().for_each(|(var, ind)| {
+            let offset = rm_var_inds.iter().filter(|&i| i < ind).count();
+
+            if offset > 0 {
+                *ind -= offset;
+                reindexed_map.insert(*ind + offset, ind);
+            }
+        });
+
+        //reindex basic vars
+        self.basic_vars.iter_mut().for_each(|ind| {
+            if let Some(new_ind) = reindexed_map.get(ind) {
+                *ind = **new_ind;
+            }
+        });
+
+        //reindex non-basic vars
+        let non_basic_vars = self
+            .non_basic_vars
+            .iter()
+            .map(|ind| {
+                if let Some(new_ind) = reindexed_map.get(ind) {
+                    **new_ind
+                } else {
+                    *ind
+                }
+            })
+            .collect::<FxHashSet<usize>>();
+        self.non_basic_vars = non_basic_vars;
+
+        //build new constraint matrix
+        let mut constraints = CsMat::empty(CompressedStorage::CSC, self.constraints.rows());
+
+        for (i, col) in self.constraints.outer_iterator().enumerate() {
+            if rm_var_inds.contains(&i) {
+                continue;
+            }
+
+            constraints = constraints.append_outer_csvec(col);
+        }
+        self.constraints = constraints;
+
+        //build new obj fn
+        let (inds, dstorage): (Vec<usize>, Vec<f64>) = self
+            .obj_fn
+            .iter()
+            .filter(|(i, coeff)| !rm_var_inds.contains(i))
+            .map(|(i, coeff)| {
+                if let Some(ind) = reindexed_map.get(&i) {
+                    (**ind, *coeff)
+                } else {
+                    (i, *coeff)
+                }
+            })
+            .unzip();
+
+        self.obj_fn = CsVec::new_from_unsorted(self.constraints.cols(), inds, dstorage).unwrap();
     }
 }
 

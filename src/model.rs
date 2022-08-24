@@ -89,7 +89,7 @@ impl Model {
     }
 
     pub fn as_standard_form(&self, bound_var: bool) -> ModelTransformationInfo {
-        //mut convert all variables to non-negative
+        //convert all variables to non-negative
         //all constraints must be in standard form (positive constant rhs, initial basic feasible
         //solution possible)
         //step 1 -> convert all variables to standard form
@@ -117,19 +117,6 @@ impl Model {
                     //remove bvar from expression
                     bvar_expression += var_map[var].expr.clone() - bvar;
                 }
-                // if let Some(ref bvar) = bvar {
-                //     // build constraint
-                //     let lhs = AffineExpression::from(var);
-                //     // let rhs = mdl.var_map[var].expr.clone();
-                //     let rhs = var_map[var].expr.clone();
-
-                //     //Current approach: N constraint -> consider converting constraint to sum
-                //     //require bvar greater than all other variables
-                //     let cons = Constraint::new(lhs, Comp::Ge, rhs);
-
-                //     //add constraint to model
-                //     mdl.add_constraint(cons);
-                // }
             }
             if let Some(ub) = var.ub() {
                 let cons = Constraint::new(var, Comp::Le, ub);
