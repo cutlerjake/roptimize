@@ -35,5 +35,5 @@ This is a very simple implementation of the SIMPLEX algorithm I implemented to i
     let mut smplx = Simplex::new();
     smplx.solve(&model, true);
     println!("Model solved!");
-    ```
+```
 
