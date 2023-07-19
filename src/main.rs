@@ -17,8 +17,6 @@ use crate::{
     constraint::{Comp, Constraint},
     model::{Model, OptDir},
     simplex::Simplex,
-    tableau::{SparseTableau, Tableau, TableauIx},
-    //solver::Solver,
 };
 
 fn main() {
@@ -50,16 +48,16 @@ fn main() {
     model.add_constraint(cons2);
     model.add_constraint(cons3);
 
-    println!("model:\n{}", model);
+    // println!("model:\n{}", model);
 
-    let std_mdl = model.as_standard_form(true);
+    // let std_mdl = model.as_standard_form(true);
 
-    let dt = std_mdl.mdl.as_tableau();
+    // let dt = std_mdl.mdl.as_tableau();
 
-    let mut dense = std_mdl.mdl.as_tableau();
-    let mut sp = SparseTableau::from(dense.clone());
+    // let mut dense = std_mdl.mdl.as_tableau();
+    // let mut sp = SparseTableau::from(dense.clone());
 
-    println!("standardized model:\n{}", std_mdl.mdl);
+    // println!("standardized model:\n{}", std_mdl.mdl);
 
     let mut smplx = Simplex::new();
     smplx.solve(&model, true);
