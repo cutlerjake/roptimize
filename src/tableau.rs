@@ -358,8 +358,6 @@ impl SparseTableau {
     pub fn col(&self, col: usize) -> CsVec<f64> {
         &self.basis * &self.constraints.outer_view(col).unwrap()
 
-        // self.basis
-        //     .dot(&self.constraints.outer_view(col).unwrap().to_dense())
     }
 
     pub fn remove_vars(&mut self, vars: Vec<Variable>) {
@@ -565,18 +563,7 @@ impl Tableau {
         self.filter_rows(mask);
         self.tbl.swap_axes(0, 1);
 
-        // let elems = self
-        // .tbl
-        // .axis_iter(Axis(1))
-        // .zip(mask.iter())
-        // .filter(|(_col, keep)| **keep)
-        // .flat_map(|(col, _keep)| col.to_vec());
-
-        // let new_n_cols = mask.len() - mask.iter().filter(|m| !**m).count();
-
-        // self.tbl = Array::from_iter(elems)
-        //     .into_shape((self.tbl.shape()[0], new_n_cols))
-        //     .unwrap();
+       
     }
 
     pub fn rref<T: Into<Slice>, U: Into<Slice>>(&mut self, rows: T, cols: U) {

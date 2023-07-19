@@ -22,8 +22,6 @@ use crate::{
 };
 
 fn main() {
-    let _coll = VariableCollection::new();
-
     let mut env = Environment::new();
 
     let vd1 = VariableDefinition::new(VarType::Float)
@@ -66,87 +64,4 @@ fn main() {
     let mut smplx = Simplex::new();
     smplx.solve(&model, true);
     println!("Model solved!");
-
-    // for _ in 0..2 {
-    //     println!("______________________________________________________");
-    //     println!("Dense model:\n{}\n", dense);
-    //     println!("Sparse:");
-    //     println!(
-    //         "\tConstraints:\n{}",
-    //         format!("\t{}", sp.constraints.to_dense()).replace("\n", "\n\t")
-    //     );
-    //     println!(
-    //         "\tBasis ({:?}):\n{}\n",
-    //         sp.basis.shape(),
-    //         format!("\t{}", sp.basis.to_dense()).replace("\n", "\n\t")
-    //     );
-    //     println!("\tRelative costs:\n\t{:?}", sp.r_costs().to_dense());
-    //     println!(
-    //         "\tSP to Dense: \n{}",
-    //         format!("\t{}", Tableau::from(&sp)).replace("\n", "\n\t")
-    //     );
-
-    //     let (j, _) = sp
-    //         .obj_fn
-    //         .iter()
-    //         .max_by(|(i1, val1), (i2, val2)| val1.partial_cmp(val2).unwrap())
-    //         .unwrap();
-    //     let i = 2;
-    //     let ix = TableauIx::new(i, j);
-
-    //     println!("Pivot ind: {:?}", ix);
-
-    //     sp.pivot(ix);
-    //     dense.pivot(&ix);
-    // }
-
-    // println!("Tableau: \n{}\n", sp.constraints.to_dense());
-    // println!(
-    //     "\tOriginal Basis:\n{}\n",
-    //     format!("\t{}", sp.basis.to_dense()).replace("\n", "\n\t")
-    // );
-    // println!("Relative costs:\n\t{:?}", sp.r_costs().to_dense());
-
-    // println!("SP to Dense: \n{}", Tableau::from(&sp));
-
-    // let (j, _) = sp
-    //     .obj_fn
-    //     .iter()
-    //     .max_by(|(i1, val1), (i2, val2)| val1.partial_cmp(val2).unwrap())
-    //     .unwrap();
-    // let i = 2;
-    // let ix = TableauIx::new(i, j);
-
-    // println!("Pivot ind: {:?}", ix);
-
-    // sp.pivot(ix);
-
-    // println!("Tableau: \n{}\n", sp.constraints.to_dense());
-    // println!(
-    //     "\tPivot 1 Basis:\n{}\n",
-    //     format!("\t{}", sp.basis.to_dense()).replace("\n", "\n\t")
-    // );
-    // println!(
-    //     "Reletive costs:\n\t{:?}",
-    //     sp.nb_r_costs().collect::<Vec<(usize, f64)>>()
-    // );
-
-    // let std = model.as_standard_form(true);
-
-    // println!("{}", std.mdl);
-
-    // let arr:Array2<f64> = array![
-    //     [2.0, 8.0, 4.0, 2.0],
-    //     [2.0, 5.0, 1.0, 5.0],
-    //     [4.0, 10.0, -1.0, 1.0]
-    // ];
-
-    // let mut tbl = Tableau::new(arr);
-
-    // println!("{:?}", tbl.tbl());
-
-    // tbl.rref();
-    // println!("");
-
-    // println!("{:?}", tbl.tbl());
 }
