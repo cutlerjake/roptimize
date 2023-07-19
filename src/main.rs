@@ -23,11 +23,11 @@ fn main() {
     let mut env = Environment::new();
 
     let vd1 = VariableDefinition::new(VarType::Float)
-        //.with_lb(0)
+        .with_lb(0)
         .with_name(String::from("a"));
 
     let vd2 = VariableDefinition::new(VarType::Float)
-        //.with_lb(4.0)
+        .with_lb(4.0)
         .with_name(String::from("b"));
 
     let var1 = Variable::new(&mut env, vd1);
@@ -47,17 +47,6 @@ fn main() {
     model.add_constraint(cons1);
     model.add_constraint(cons2);
     model.add_constraint(cons3);
-
-    // println!("model:\n{}", model);
-
-    // let std_mdl = model.as_standard_form(true);
-
-    // let dt = std_mdl.mdl.as_tableau();
-
-    // let mut dense = std_mdl.mdl.as_tableau();
-    // let mut sp = SparseTableau::from(dense.clone());
-
-    // println!("standardized model:\n{}", std_mdl.mdl);
 
     let mut smplx = Simplex::new();
     smplx.solve(&model, true);

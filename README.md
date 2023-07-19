@@ -7,11 +7,11 @@ This is a very simple implementation of the SIMPLEX algorithm I implemented to i
     let mut env = Environment::new();
 
     let vd1 = VariableDefinition::new(VarType::Float)
-        //.with_lb(0)
+        .with_lb(0)
         .with_name(String::from("a"));
 
     let vd2 = VariableDefinition::new(VarType::Float)
-        //.with_lb(4.0)
+        .with_lb(4.0)
         .with_name(String::from("b"));
 
     let var1 = Variable::new(&mut env, vd1);
